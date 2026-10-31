@@ -1,0 +1,23 @@
+server:
+  address: ":8080"
+  frontend_dir: frontend/dist
+  secure_cookies: false
+
+database:
+  driver: sqlite # sqlite, postgres, mysql
+  dsn: data/cloudpilot.db
+  # postgres: host=localhost user=cloudpilot password=secret dbname=cloudpilot port=5432 sslmode=disable
+  # mysql: cloudpilot:secret@tcp(localhost:3306)/cloudpilot?charset=utf8mb4&parseTime=True&loc=UTC
+
+admin:
+  username: admin
+  password: "" # Set CLOUDPILOT_ADMIN_PASSWORD (12–72 bytes) before first startup.
+
+runtime:
+  data_dir: data/runs
+
+scheduler:
+  poll_interval: 2s
+
+metrics:
+  address: "" # Optional separate listener, e.g. :9090
