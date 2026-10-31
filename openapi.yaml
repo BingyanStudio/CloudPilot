@@ -372,15 +372,17 @@ paths:
           type: string
           enum:
           - queued
+          - waiting
           - running
           - succeeded
           - failed
           - cancelled
+          - interrupted
   /api/events/{id}/retry:
     parameters:
     - $ref: '#/components/parameters/ID'
     post:
-      summary: Requeue a failed or cancelled event
+      summary: Start a fresh run for a failed, cancelled or interrupted event
       tags:
       - Events
       responses:
@@ -404,7 +406,9 @@ paths:
           $ref: '#/components/responses/Unavailable'
         default:
           $ref: '#/components/responses/Error'
-      description: Resets the event retry budget and queues another attempt. Existing run records are retained.
+      description: Starts a fresh Run with a reset retry budget. It does not continue an existing conversation.
+        Interactive sessions must be closed before retrying a failed, cancelled or interrupted event. Previous run
+        records and collected artifacts remain available.
   /api/pipelines/{name}/trigger:
     parameters:
     - $ref: '#/components/parameters/Name'
@@ -462,15 +466,17 @@ paths:
         schema:
           type: string
           enum:
+          - queued
           - running
           - succeeded
           - failed
           - cancelled
+          - interrupted
   /api/runs/{id}:
     parameters:
     - $ref: '#/components/parameters/ID'
     get:
-      summary: Get a run, its event and artifacts
+      summary: Get a run, session, capabilities, turns and artifacts
       tags:
       - Observability
       responses:
@@ -488,6 +494,178 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+      description: Legacy batch executions return session=null, an empty turns array, and false interactive capabilities.
+  /api/runs/{id}/timeline:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    get:
+      summary: Poll structured conversation and tool events
+      tags:
+      - Agent sessions
+      parameters:
+      - name: after
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+        description: Return event IDs greater than this cursor.
+      responses:
+        '200':
+          description: At most 1000 events ordered by ascending ID.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SessionEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+      description: Poll again using the last received ID. Timeline events are append-only and distinct from raw
+        stdout/stderr logs. A legacy batch run returns an empty array.
+  /api/runs/{id}/messages:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    post:
+      summary: Send additional information to the agent
+      tags:
+      - Agent sessions
+      description: An active turn receives a steering request. An idle, interrupted or failed resumable session
+        queues another turn. HTTP 202 does not guarantee that the model has consumed a message; observe control
+        acknowledgement and turn state.
+      responses:
+        '202':
+          description: Operation accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentMessageRequest'
+  /api/runs/{id}/interrupt:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    post:
+      summary: Interrupt the current turn and keep its session
+      tags:
+      - Agent sessions
+      description: Requests an agent-level interruption. The workspace and conversation remain available for continuation.
+        A completed or inactive turn cannot be interrupted.
+      responses:
+        '202':
+          description: Operation accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/runs/{id}/resume:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    post:
+      summary: Queue another turn in the same session
+      tags:
+      - Agent sessions
+      description: Continues the preserved conversation and workspace using the supplied instruction or the default
+        continuation instruction. The new turn bypasses cron gating but respects the current pipeline pause and
+        concurrency limits. It does not replay a prior tool process.
+      responses:
+        '202':
+          description: Operation accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentResumeRequest'
+  /api/runs/{id}/close:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    post:
+      summary: End the session and remove its retained workspace
+      tags:
+      - Agent sessions
+      description: Stops active work and removes the session runtime storage. Conversation timeline, logs and previously
+        collected artifacts remain in CloudPilot. Cleanup failures remain visible and retryable; this does not undo
+        external changes such as created Issues or PRs.
+      responses:
+        '202':
+          description: Operation accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/Unavailable'
         default:
           $ref: '#/components/responses/Error'
   /api/runs/{id}/logs:
@@ -549,6 +727,8 @@ paths:
           $ref: '#/components/responses/Unavailable'
         default:
           $ref: '#/components/responses/Error'
+      description: Legacy cancellation endpoint. For interactive runs this ends the session rather than preserving
+        it for continuation. Use /interrupt to stop only the current turn.
   /api/artifacts:
     get:
       summary: List the newest 200 artifacts
@@ -794,19 +974,28 @@ components:
           minimum: 1
           maximum: 32
           default: 1
+          description: Maximum concurrent executions, including human follow-up turns. Idle or interrupted sessions
+            do not occupy a slot.
         paused:
           type: boolean
           default: false
+          description: Blocks new batch and follow-up dispatch without interrupting active turns or active-turn
+            steering.
         maxRetries:
           type: integer
           minimum: 0
           maximum: 10
           default: 0
+          description: Automatic retries for batch execution and initial interactive failures before a provider
+            thread exists, after session cleanup succeeds. Established conversations and human follow-up turns are
+            not automatically replayed.
         timeoutSeconds:
           type: integer
           minimum: 10
           maximum: 86400
           default: 3600
+          description: Execution timeout; applied independently to each interactive turn using the session configuration
+            snapshot.
       required:
       - workerRef
       - workspaceRef
@@ -947,10 +1136,12 @@ components:
           type: string
           enum:
           - queued
+          - waiting
           - running
           - succeeded
           - failed
           - cancelled
+          - interrupted
         payload: {}
         attempts:
           type: integer
@@ -988,10 +1179,12 @@ components:
         status:
           type: string
           enum:
+          - queued
           - running
           - succeeded
           - failed
           - cancelled
+          - interrupted
         attempt:
           type: integer
           minimum: 1
@@ -1100,10 +1293,24 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Artifact'
+        session:
+          anyOf:
+          - $ref: '#/components/schemas/AgentSession'
+          - type: 'null'
+        capabilities:
+          $ref: '#/components/schemas/AgentCapabilities'
+        turns:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentTurn'
+          description: Turns ordered by ascending number.
       required:
       - run
       - event
       - artifacts
+      - session
+      - capabilities
+      - turns
     Overview:
       type: object
       properties:
@@ -1255,3 +1462,228 @@ components:
           Worker: '#/components/schemas/Worker'
           Workspace: '#/components/schemas/Workspace'
           Runner: '#/components/schemas/Runner'
+    AgentSession:
+      type: object
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        runId:
+          type: integer
+          minimum: 1
+        threadId:
+          type: string
+        state:
+          type: string
+          enum:
+          - starting
+          - queued
+          - running
+          - interrupting
+          - idle
+          - interrupted
+          - failed
+          - closing
+          - closed
+        currentTurnId:
+          type: integer
+          minimum: 0
+        lastError:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        closedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+      required:
+      - id
+      - runId
+      - threadId
+      - state
+      - currentTurnId
+      - lastError
+      - createdAt
+      - updatedAt
+      - closedAt
+      description: Agent conversation associated with one Run. The resource configuration snapshot is private. An
+        idle session remains resumable after a successful run; only closing it removes its persisted workspace and
+        conversation state.
+    AgentCapabilities:
+      type: object
+      properties:
+        interactive:
+          type: boolean
+        canSend:
+          type: boolean
+        canInterrupt:
+          type: boolean
+        canResume:
+          type: boolean
+        canClose:
+          type: boolean
+      required:
+      - interactive
+      - canSend
+      - canInterrupt
+      - canResume
+      - canClose
+      description: Actions supported by the adapter in the current session state. Capabilities may change before
+        a request reaches the server; stale actions return 409.
+    AgentTurn:
+      type: object
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        runId:
+          type: integer
+          minimum: 1
+        sessionId:
+          type: integer
+          minimum: 1
+        number:
+          type: integer
+          minimum: 1
+        providerTurnId:
+          type: string
+        input:
+          type: string
+        initial:
+          type: boolean
+        userId:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum:
+          - queued
+          - running
+          - completed
+          - interrupted
+          - failed
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        finishedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+      required:
+      - id
+      - runId
+      - sessionId
+      - number
+      - providerTurnId
+      - input
+      - initial
+      - userId
+      - status
+      - createdAt
+      - startedAt
+      - finishedAt
+      description: One initial or human-requested execution turn in an AgentSession. Initial input contains feedback
+        JSON. A userId of zero identifies an automatic initial turn.
+    SessionEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        runId:
+          type: integer
+          minimum: 1
+        turnId:
+          type: integer
+          minimum: 0
+        type:
+          type: string
+          enum:
+          - message
+          - tool
+          - status
+          - error
+          - control
+        itemId:
+          type: string
+        role:
+          type: string
+        status:
+          type: string
+        text:
+          type: string
+        tool:
+          type: string
+        command:
+          type: string
+        output:
+          type: string
+        delta:
+          type: boolean
+        controlId:
+          type: integer
+          minimum: 0
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - runId
+      - turnId
+      - type
+      - itemId
+      - role
+      - status
+      - text
+      - tool
+      - command
+      - output
+      - delta
+      - controlId
+      - createdAt
+      description: Append-only normalized timeline event. Group content by turnId and itemId. delta=true appends
+        text or tool output; delta=false replaces the current item snapshot. controlId references a queued user-message
+        event; control status accepted or rejected reports whether active-turn steering reached the agent. Provider
+        secrets are redacted; raw protocol payloads are not exposed.
+    AgentMessageRequest:
+      type: object
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 32768
+          description: Nonblank text, at most 32 KiB encoded as UTF-8. NUL characters are not allowed; the encoded
+            JSON request body is limited to 256 KiB.
+      required:
+      - message
+      additionalProperties: false
+    AgentResumeRequest:
+      type: object
+      properties:
+        message:
+          type: string
+          maxLength: 32768
+          description: Optional continuation instruction, at most 32 KiB encoded as UTF-8. Empty input uses the
+            default continuation instruction. NUL characters are not allowed; the encoded JSON request body is limited
+            to 256 KiB.
+      additionalProperties: false
+    ActionAccepted:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+      - message
+      description: The operation was accepted for processing. Consult session state and timeline events for delivery,
+        completion or failure.

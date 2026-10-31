@@ -33,4 +33,4 @@ make dev
 | `frontend` | Carbon 管理界面 |
 | `deploy/worker` | Codex 执行镜像 |
 
-配置与部署见 [部署文档](docs/2026-10-31-deployment.md)，工作流与扩展见 [资源和执行说明](docs/2026-10-31-resources-and-execution.md)。完整接口见 [OpenAPI](openapi.yaml)，夜间反馈处理示例见 [examples/nightly-feedback.yaml](examples/nightly-feedback.yaml)。
+配置与部署见 [部署文档](docs/2026-10-31-deployment.md)，工作流与扩展见 [资源和执行说明](docs/2026-10-31-resources-and-execution.md)，对话、工具调用与人工介入见 [交互式会话](docs/2026-10-31-interactive-sessions.md)。完整接口见 [OpenAPI](openapi.yaml)，夜间反馈处理示例见 [examples/nightly-feedback.yaml](examples/nightly-feedback.yaml)。

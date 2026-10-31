@@ -55,23 +55,27 @@ Docker socket 使控制平面拥有管理 daemon 的权限。仅向受信任的�
 
 将服务放在 HTTPS 反向代理后，设置 `server.secure_cookies: true`，保留原始 `Host`。浏览器写请求会校验 `Origin` 与请求 `Host`，前端和 API 应部署在同一站点。代理只应转发受信任的客户端地址头。首次设置账号后，避免把启动配置、`.env` 或数据库文件提交到仓库。
 
-数据库保存配置、事件、运行记录、日志、会话和产物元信息；`runtime.data_dir` 保存文件产物。备份和恢复应同时覆盖两者。SQLite 在线备份应使用 SQLite 的备份机制；直接复制文件前先停止服务。
+数据库保存配置、事件、运行记录、日志、会话、轮次、结构化时间线和产物元信息；`runtime.data_dir` 保存文件产物及部署标识。交互式 Agent 的仓库和 Codex 会话状态另存于 runner daemon 的 Docker 命名卷中，不在 Compose 的 `cloudpilot-data` 卷内。需要恢复人工继续能力时，备份必须覆盖数据库、完整数据目录和这些会话卷，并恢复到相同的部署标识。SQLite 在线备份应使用 SQLite 的备份机制；复制工作目录或会话卷前应停止活动轮次。
 
-当前版本只运行一个调度服务实例。多个实例共享数据库可能超出 Pipeline 并发配额，尚未提供 leader election 或分布式租约。停止服务会取消活动执行；重启后调度器修复被中断的运行状态，并按重试策略处理事件。
+当前版本只运行一个调度服务实例。多个实例共享数据库可能超出 Pipeline 并发配额，尚未提供 leader election 或分布式租约。停止服务会中断活动轮次并保留交互式会话卷；重启后先清理遗留执行容器，再将中断的交互式轮次置为可人工继续的状态。批处理执行仍按原重试策略恢复。
+
+空闲和中断会话不占 Pipeline 并发额度，但继续占用卷空间。通过运行详情的“结束任务”清理不再需要的会话；清理失败会保留错误并允许重试。自然完成一轮不会自动删除会话卷，详情见 [Agent 会话与人工介入](2026-10-31-interactive-sessions.md)。
 
 ## 开发和检查
 
 `make install` 安装锁定的 Go 与前端依赖；`make dev` 启动 API；`make frontend-dev` 启动 Vite，代理 `/api`、`/hooks`、`/health` 到 `127.0.0.1:8080`。`make build` 输出 `bin/cloudpilot` 和 `frontend/dist`。
 
-`make test` 执行 Go 测试、`go vet` 和 TypeScript/Vite 构建。CI 还执行 Go race 检测。Docker runner 的集成验证使用确定性的执行镜像，无需调用付费模型：
+`make test` 执行 Go 测试、`go vet`、前端时间线归并测试和 TypeScript/Vite 构建。CI 还执行 Go race 检测。Docker runner 的集成验证使用确定性的执行镜像，无需调用付费模型：
 
 ```sh
 make worker-image
 docker build -t cloudpilot-fixture:latest internal/runtime/testdata
+docker build -t cloudpilot-session-fixture:latest internal/runtime/testdata/session
 CLOUDPILOT_TEST_DOCKER_IMAGE=cloudpilot-fixture:latest go test ./internal/runtime -run TestDockerExecution -v
-CLOUDPILOT_TEST_CODEX_IMAGE=cloudpilot-codex:latest go test ./internal/runtime -run TestCodexProtocol -v
+CLOUDPILOT_TEST_SESSION_IMAGE=cloudpilot-session-fixture:latest go test ./internal/runtime -run TestInteractiveDockerSession -v
+CLOUDPILOT_TEST_CODEX_IMAGE=cloudpilot-codex:latest go test ./internal/runtime -run 'TestCodex(Interactive)?Protocol' -v
 ```
 
-这些检查分别覆盖容器生命周期、产物收集、密钥脱敏及取消后的清理，以及真实 Codex CLI 对本地模拟 Responses endpoint 的协议交互；均不调用付费模型。未设置相应镜像变量时，日常 `go test ./...` 跳过需要 daemon 的集成用例。
+这些检查覆盖容器生命周期、产物收集、密钥脱敏、取消清理，以及交互式会话的补充信息、中断、跨容器恢复、工作目录保留和明确结束。真实 Codex 的协议检查连接本地模拟 Responses endpoint，均不调用付费模型。未设置相应镜像变量时，日常 `go test ./...` 跳过需要 daemon 的集成用例。
 
 设置 `CLOUDPILOT_TEST_POSTGRES_DSN` 或 `CLOUDPILOT_TEST_MYSQL_DSN` 后，运行 `go test ./internal/model -run TestDatabaseIntegration -v` 可检查对应数据库的迁移、长文本、幂等约束和事务回滚。必须使用名称以 `cloudpilot_test_` 开头的专用空测试数据库，不能指向生产数据库。
