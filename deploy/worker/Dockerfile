@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:24-bookworm-slim
+FROM node:25-bookworm-slim
 ARG CODEX_VERSION=0.166.0
 ARG GH_VERSION=2.103.3
 RUN --mount=type=secret,id=proxy_ca \
