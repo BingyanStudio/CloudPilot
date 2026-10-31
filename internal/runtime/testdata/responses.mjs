@@ -1,5 +1,5 @@
 import http from 'node:http';
-const text = 'Verified local Codex protocol.';
+let counter = 0;
 http.createServer(async (request, response) => {
   if (request.url === '/health') { response.end('ok'); return; }
   let body = '';
@@ -9,8 +9,10 @@ http.createServer(async (request, response) => {
   if (request.url !== '/v1/responses' || request.headers.authorization !== 'Bearer fixture-protocol-key' || data.model !== 'gpt-5.4') {
     response.writeHead(400).end('unexpected endpoint, model, or authentication'); return;
   }
-  const item = {id:'msg_fixture', type:'message', status:'completed', role:'assistant', content:[{type:'output_text', text, annotations:[]}]};
-  const result = {id:'resp_fixture', object:'response', created_at:1, status:'completed', output:[item], usage:{input_tokens:5, output_tokens:5, total_tokens:10}};
+  const text = JSON.stringify(data.input).includes('interactive follow-up') ? 'Verified resumed Codex conversation.' : 'Verified local Codex protocol.';
+  counter++;
+  const item = {id:'msg_fixture_'+counter, type:'message', status:'completed', role:'assistant', content:[{type:'output_text', text, annotations:[]}]};
+  const result = {id:'resp_fixture_'+counter, object:'response', created_at:1, status:'completed', output:[item], usage:{input_tokens:5, output_tokens:5, total_tokens:10}};
   const events = [
     {type:'response.created', response:{...result, status:'in_progress', output:[]}},
     {type:'response.output_item.added', output_index:0, item:{...item, status:'in_progress', content:[]}},

@@ -22,6 +22,11 @@ type PreparedWorker struct {
 }
 
 // Worker prepares an agent independently of the compute runner that launches it.
+// SessionWorker prepares an agent with a bidirectional app-server transport.
+type SessionWorker interface {
+	PrepareSession(engine.Task) (PreparedWorker, error)
+}
+
 type Worker interface {
 	Prepare(engine.Task) (PreparedWorker, error)
 }
@@ -58,6 +63,12 @@ func prepareWorker(task engine.Task) (PreparedWorker, error) {
 //go:embed worker.mjs
 var workerScript []byte
 
+//go:embed session.mjs
+var sessionScript []byte
+
+//go:embed workspace.mjs
+var workspaceScript []byte
+
 // Codex prepares the Codex CLI adapter with an OpenAI-compatible Responses API provider.
 type Codex struct{}
 
@@ -81,8 +92,26 @@ func (Codex) Prepare(task engine.Task) (PreparedWorker, error) {
 	}
 	return PreparedWorker{
 		Entrypoint: "node", Args: []string{"/tmp/cloudpilot-worker.mjs"},
-		Files:       map[string][]byte{"cloudpilot-task.json": payload, "cloudpilot-worker.mjs": workerScript},
+		Files:       map[string][]byte{"cloudpilot-task.json": payload, "cloudpilot-worker.mjs": workerScript, "cloudpilot-workspace.mjs": workspaceScript},
 		Environment: map[string]string{"OPENAI_API_KEY": value, "CODEX_HOME": "/workspace/.codex"},
 		Secrets:     []string{value},
 	}, nil
+}
+
+// PrepareSession adds the persistent-workspace app-server bootstrap.
+func (c Codex) PrepareSession(task engine.Task) (PreparedWorker, error) {
+	prepared, err := c.Prepare(task)
+	if err != nil {
+		return prepared, err
+	}
+	prepared.Args = []string{"/tmp/cloudpilot-session.mjs"}
+	prepared.Files["cloudpilot-session.mjs"] = sessionScript
+	return prepared, nil
+}
+
+func sessionWorker(task engine.Task) SessionWorker {
+	workerAdapters.RLock()
+	defer workerAdapters.RUnlock()
+	adapter, _ := workerAdapters.items[task.Worker.Type].(SessionWorker)
+	return adapter
 }

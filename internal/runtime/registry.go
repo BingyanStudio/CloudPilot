@@ -32,3 +32,25 @@ func (r Runners) Recover(ctx context.Context) error {
 	}
 	return errors.Join(failures...)
 }
+
+// SupportsInteraction delegates capabilities to the selected compute provider.
+func (r Runners) SupportsInteraction(task engine.Task) bool {
+	provider, ok := r[task.Runner.Type].(engine.InteractiveExecutor)
+	return ok && provider.SupportsInteraction(task)
+}
+
+func (r Runners) ExecuteTurn(ctx context.Context, task engine.Task, session model.AgentSession, turn model.AgentTurn, controls <-chan engine.SessionControl, emit func(engine.SessionUpdate), log func(string, string)) (engine.TurnResult, error) {
+	provider, ok := r[task.Runner.Type].(engine.InteractiveExecutor)
+	if !ok || !provider.SupportsInteraction(task) {
+		return engine.TurnResult{}, fmt.Errorf("runner %q does not support this interactive worker", task.Runner.Type)
+	}
+	return provider.ExecuteTurn(ctx, task, session, turn, controls, emit, log)
+}
+
+func (r Runners) CloseSession(ctx context.Context, task engine.Task, session model.AgentSession) error {
+	provider, ok := r[task.Runner.Type].(engine.InteractiveExecutor)
+	if !ok {
+		return fmt.Errorf("runner %q cannot close interactive sessions", task.Runner.Type)
+	}
+	return provider.CloseSession(ctx, task, session)
+}
