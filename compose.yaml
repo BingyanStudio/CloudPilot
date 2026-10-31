@@ -1,0 +1,21 @@
+services:
+  cloudpilot:
+    build: .
+    image: cloudpilot:local
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:9090:9090"
+    environment:
+      CLOUDPILOT_ADMIN_PASSWORD: ${CLOUDPILOT_ADMIN_PASSWORD:?Set CLOUDPILOT_ADMIN_PASSWORD before starting}
+      CLOUDPILOT_METRICS_ADDRESS: ":9090"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      FEEDBACK_WEBHOOK_SECRET: ${FEEDBACK_WEBHOOK_SECRET:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - cloudpilot-data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  cloudpilot-data:

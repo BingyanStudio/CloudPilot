@@ -1,0 +1,1257 @@
+openapi: 3.1.0
+info:
+  title: CloudPilot API
+  version: 0.1.0
+  description: Declarative Agent scheduling and observability control plane. All /api routes except login require
+    a session cookie. Browser mutations require Origin to match Host; CLI requests may omit Origin. JSON bodies
+    are limited to 2 MiB unless a smaller route-specific limit applies. Errors return {message}.
+servers:
+- url: http://localhost:8080
+  description: Local development
+security:
+- sessionCookie: []
+paths:
+  /health:
+    get:
+      summary: Check database health
+      tags:
+      - Health
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - ok
+                required:
+                - status
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        default:
+          $ref: '#/components/responses/Error'
+      security: []
+  /api/auth/login:
+    post:
+      summary: Create a 24-hour administrator session
+      tags:
+      - Authentication
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Identity'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+      security: []
+      description: Sets an HttpOnly SameSite=Strict cp_session cookie. Maximum 10 login attempts per client IP per
+        minute. Secure flag follows server configuration.
+  /api/auth/me:
+    get:
+      summary: Read the current administrator
+      tags:
+      - Authentication
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Identity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/auth/logout:
+    post:
+      summary: Invalidate the current session
+      tags:
+      - Authentication
+      responses:
+        '204':
+          description: Session invalidated and cookie removed
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/overview:
+    get:
+      summary: Count persisted resources, events and runs
+      tags:
+      - Observability
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Overview'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/Error'
+      description: Resources are grouped by kind; events and runs by status. Groups with zero rows may be absent.
+  /api/resources:
+    get:
+      summary: List declarative resources
+      tags:
+      - Resources
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Document'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: kind
+        in: query
+        schema:
+          type: string
+          enum:
+          - Input
+          - Pipeline
+          - Worker
+          - Workspace
+          - Runner
+    post:
+      summary: Create or replace a resource
+      tags:
+      - Resources
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+      description: Upsert by kind and metadata.name. Applies defaults and validates all resource references. Include
+        metadata.generation to reject stale edits.
+  /api/resources/{kind}/{name}:
+    parameters:
+    - $ref: '#/components/parameters/Kind'
+    - $ref: '#/components/parameters/Name'
+    get:
+      summary: Get a resource
+      tags:
+      - Resources
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      summary: Create or replace the named resource
+      tags:
+      - Resources
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+      description: Body kind and metadata.name must match the path. Same validation and upsert behavior as POST
+        /api/resources.
+    delete:
+      summary: Delete an unreferenced resource
+      tags:
+      - Resources
+      responses:
+        '204':
+          description: Resource deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        default:
+          $ref: '#/components/responses/Error'
+      description: References from other resources block deletion. Pipelines with queued or running events cannot
+        be deleted.
+  /api/config/import:
+    post:
+      summary: Atomically apply multi-document YAML
+      tags:
+      - Resources
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Document'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportRequest'
+      description: Maximum 100 documents and 1 MiB YAML. Strict unknown-field validation. References can resolve
+        to objects in this batch or already stored. Absent resources are not deleted.
+  /api/config/export:
+    get:
+      summary: Export all resources as portable YAML
+      tags:
+      - Resources
+      responses:
+        '200':
+          description: Success
+          content:
+            application/yaml:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/Error'
+      description: Returns an attachment named cloudpilot-resources.yaml. Includes secret references, never resolves
+        secret values; omits metadata.generation.
+  /hooks/{name}:
+    parameters:
+    - $ref: '#/components/parameters/Name'
+    post:
+      summary: Queue a feedback event
+      tags:
+      - Inputs
+      responses:
+        '202':
+          description: Persisted event, or the original event for an existing idempotency key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {}
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        schema:
+          type: string
+          maxLength: 190
+        description: Optional key scoped to this Input. Reusing it returns the original event without requeueing.
+      description: Accepts any valid JSON value up to 1 MiB. Bearer credential is resolved from Input.spec.secretRef.
+        Paused Inputs reject events with 409; unavailable credentials return 503.
+      security:
+      - webhookBearer: []
+  /api/events:
+    get:
+      summary: List the newest 200 events
+      tags:
+      - Events
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/PipelineFilter'
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - queued
+          - running
+          - succeeded
+          - failed
+          - cancelled
+  /api/events/{id}/retry:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    post:
+      summary: Requeue a failed or cancelled event
+      tags:
+      - Events
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        default:
+          $ref: '#/components/responses/Error'
+      description: Resets the event retry budget and queues another attempt. Existing run records are retained.
+  /api/pipelines/{name}/trigger:
+    parameters:
+    - $ref: '#/components/parameters/Name'
+    post:
+      summary: Release the current pipeline queue
+      tags:
+      - Events
+      responses:
+        '202':
+          description: Pipeline trigger accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        default:
+          $ref: '#/components/responses/Error'
+      description: Releases events queued up to this trigger time while respecting concurrency. A paused pipeline
+        cannot be triggered.
+  /api/runs:
+    get:
+      summary: List the newest 200 runs
+      tags:
+      - Observability
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Run'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/PipelineFilter'
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - running
+          - succeeded
+          - failed
+          - cancelled
+  /api/runs/{id}:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    get:
+      summary: Get a run, its event and artifacts
+      tags:
+      - Observability
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/runs/{id}/logs:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    get:
+      summary: Poll execution logs incrementally
+      tags:
+      - Observability
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RunLog'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: after
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+        description: Only return log IDs greater than this cursor.
+      description: Returns at most 1000 rows ordered by ascending ID. Poll again with the final returned ID to continue.
+  /api/runs/{id}/cancel:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    post:
+      summary: Cancel an active run
+      tags:
+      - Observability
+      responses:
+        '204':
+          description: Cancellation accepted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/artifacts:
+    get:
+      summary: List the newest 200 artifacts
+      tags:
+      - Artifacts
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Artifact'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/artifacts/{id}/download:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    get:
+      summary: Download a collected file
+      tags:
+      - Artifacts
+      responses:
+        '200':
+          description: Success
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+      description: Only file artifacts have downloads. Files are served as attachments with nosniff; internal filesystem
+        paths are not exposed.
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: cp_session
+    webhookBearer:
+      type: http
+      scheme: bearer
+      description: Secret from the Input secretRef environment variable.
+  parameters:
+    Kind:
+      name: kind
+      in: path
+      required: true
+      schema:
+        type: string
+        enum:
+        - Input
+        - Pipeline
+        - Worker
+        - Workspace
+        - Runner
+    Name:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$
+        maxLength: 63
+    ID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    PipelineFilter:
+      name: pipeline
+      in: query
+      schema:
+        type: string
+      description: Filter by pipeline name.
+  responses:
+    Error:
+      description: Error response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    BadRequest:
+      description: Invalid input or configuration
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Cross-origin mutation rejected
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource or file not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Resource conflict or invalid state transition
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unavailable:
+      description: Database, scheduler or configured secret unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    PayloadTooLarge:
+      description: Webhook payload exceeds 1 MiB
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RateLimited:
+      description: 'Too many login attempts; Retry-After: 60'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+      headers:
+        Retry-After:
+          schema:
+            type: string
+            example: '60'
+          description: Seconds before retrying.
+  schemas:
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+      - message
+    Identity:
+      type: object
+      properties:
+        username:
+          type: string
+      required:
+      - username
+    Login:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+      required:
+      - username
+      - password
+      additionalProperties: false
+    Metadata:
+      type: object
+      properties:
+        name:
+          type: string
+          pattern: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$
+          maxLength: 63
+        generation:
+          type: integer
+          minimum: 0
+          description: Optional optimistic concurrency token. A nonzero stale generation returns 409. YAML export
+            omits it for portability.
+      required:
+      - name
+      additionalProperties: false
+    InputSpec:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - webhook
+          default: webhook
+        pipelineRef:
+          type: string
+          pattern: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$
+          maxLength: 63
+        secretRef:
+          type: string
+          pattern: ^[A-Za-z_][A-Za-z0-9_]*$
+          description: Name of the server environment variable containing the webhook Bearer secret.
+        paused:
+          type: boolean
+          default: false
+      required:
+      - pipelineRef
+      - secretRef
+      additionalProperties: false
+    PipelineSpec:
+      type: object
+      properties:
+        workerRef:
+          type: string
+          pattern: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$
+          maxLength: 63
+        workspaceRef:
+          type: string
+          pattern: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$
+          maxLength: 63
+        runnerRef:
+          type: string
+          pattern: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$
+          maxLength: 63
+        schedule:
+          type: string
+          default: ''
+          description: Five-field cron; empty means immediate scheduling. Set timezone separately.
+        timezone:
+          type: string
+          default: Asia/Shanghai
+          example: Asia/Shanghai
+        concurrency:
+          type: integer
+          minimum: 1
+          maximum: 32
+          default: 1
+        paused:
+          type: boolean
+          default: false
+        maxRetries:
+          type: integer
+          minimum: 0
+          maximum: 10
+          default: 0
+        timeoutSeconds:
+          type: integer
+          minimum: 10
+          maximum: 86400
+          default: 3600
+      required:
+      - workerRef
+      - workspaceRef
+      - runnerRef
+      additionalProperties: false
+    WorkerSpec:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - codex
+          default: codex
+        model:
+          type: string
+          minLength: 1
+        endpoint:
+          type: string
+          description: Optional absolute HTTP(S) API base URL without embedded credentials.
+        apiKeySecretRef:
+          type: string
+          pattern: ^[A-Za-z_][A-Za-z0-9_]*$
+          description: Name of the server environment variable containing the API key.
+        instructions:
+          type: string
+      required:
+      - model
+      - apiKeySecretRef
+      additionalProperties: false
+    Repository:
+      type: object
+      properties:
+        url:
+          type: string
+          description: HTTPS or SSH clone URL without embedded passwords.
+        ref:
+          type: string
+          description: Optional branch, tag or commit reference.
+        path:
+          type: string
+          description: Non-overlapping relative workspace path; defaults to repo-N.
+      required:
+      - url
+      additionalProperties: false
+    MCPServer:
+      type: object
+      properties:
+        command:
+          type: string
+        args:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+        env:
+          type:
+          - object
+          - 'null'
+          additionalProperties:
+            type: string
+        url:
+          type: string
+          description: HTTP(S) MCP endpoint.
+      additionalProperties: false
+      description: Exactly one of command or url must be nonempty.
+    WorkspaceSpec:
+      type: object
+      properties:
+        repositories:
+          type:
+          - array
+          - 'null'
+          items:
+            $ref: '#/components/schemas/Repository'
+        prompt:
+          type: string
+        tools:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+          description: Shell setup commands executed in order inside the worker.
+        mcpServers:
+          type:
+          - object
+          - 'null'
+          additionalProperties:
+            $ref: '#/components/schemas/MCPServer'
+        env:
+          type:
+          - object
+          - 'null'
+          additionalProperties:
+            type: string
+        secretEnv:
+          type:
+          - object
+          - 'null'
+          additionalProperties:
+            type: string
+            pattern: ^[A-Za-z_][A-Za-z0-9_]*$
+          description: Maps container environment names to server environment secret names.
+      additionalProperties: false
+    RunnerSpec:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - docker
+          default: docker
+        image:
+          type: string
+          default: cloudpilot-codex:latest
+        network:
+          type: string
+          description: Docker network, e.g. bridge or a preconfigured isolated network.
+        memory:
+          type: string
+          example: 4g
+        cpus:
+          type: string
+          example: '2'
+      additionalProperties: false
+    Event:
+      type: object
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        inputName:
+          type: string
+        pipelineName:
+          type: string
+        status:
+          type: string
+          enum:
+          - queued
+          - running
+          - succeeded
+          - failed
+          - cancelled
+        payload: {}
+        attempts:
+          type: integer
+          minimum: 0
+        availableAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - inputName
+      - pipelineName
+      - status
+      - payload
+      - attempts
+      - availableAt
+      - createdAt
+      - updatedAt
+    Run:
+      type: object
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        eventId:
+          type: integer
+          minimum: 1
+        pipelineName:
+          type: string
+        status:
+          type: string
+          enum:
+          - running
+          - succeeded
+          - failed
+          - cancelled
+        attempt:
+          type: integer
+          minimum: 1
+        workerName:
+          type: string
+        workspaceName:
+          type: string
+        runnerName:
+          type: string
+        error:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - eventId
+      - pipelineName
+      - status
+      - attempt
+      - workerName
+      - workspaceName
+      - runnerName
+      - error
+      - startedAt
+      - finishedAt
+      - createdAt
+    RunLog:
+      type: object
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        runId:
+          type: integer
+          minimum: 1
+        stream:
+          type: string
+        message:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - runId
+      - stream
+      - message
+      - createdAt
+    Artifact:
+      type: object
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        runId:
+          type: integer
+          minimum: 1
+        kind:
+          type: string
+          enum:
+          - issue
+          - pr
+          - file
+          - text
+        name:
+          type: string
+        url:
+          type: string
+        content:
+          type: string
+        contentType:
+          type: string
+        size:
+          type: integer
+          minimum: 0
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - runId
+      - kind
+      - name
+      - url
+      - content
+      - contentType
+      - size
+      - createdAt
+    RunDetail:
+      type: object
+      properties:
+        run:
+          $ref: '#/components/schemas/Run'
+        event:
+          $ref: '#/components/schemas/Event'
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Artifact'
+      required:
+      - run
+      - event
+      - artifacts
+    Overview:
+      type: object
+      properties:
+        resources:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+        events:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+        runs:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+      required:
+      - resources
+      - events
+      - runs
+    ImportRequest:
+      type: object
+      properties:
+        yaml:
+          type: string
+          description: At most 1 MiB of YAML containing up to 100 documents.
+      required:
+      - yaml
+      additionalProperties: false
+    Input:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          enum:
+          - cloudpilot.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+          - Input
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        spec:
+          $ref: '#/components/schemas/InputSpec'
+      required:
+      - apiVersion
+      - kind
+      - metadata
+      - spec
+      additionalProperties: false
+    Pipeline:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          enum:
+          - cloudpilot.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+          - Pipeline
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        spec:
+          $ref: '#/components/schemas/PipelineSpec'
+      required:
+      - apiVersion
+      - kind
+      - metadata
+      - spec
+      additionalProperties: false
+    Worker:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          enum:
+          - cloudpilot.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+          - Worker
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        spec:
+          $ref: '#/components/schemas/WorkerSpec'
+      required:
+      - apiVersion
+      - kind
+      - metadata
+      - spec
+      additionalProperties: false
+    Workspace:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          enum:
+          - cloudpilot.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+          - Workspace
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        spec:
+          $ref: '#/components/schemas/WorkspaceSpec'
+      required:
+      - apiVersion
+      - kind
+      - metadata
+      - spec
+      additionalProperties: false
+    Runner:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          enum:
+          - cloudpilot.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+          - Runner
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        spec:
+          $ref: '#/components/schemas/RunnerSpec'
+      required:
+      - apiVersion
+      - kind
+      - metadata
+      - spec
+      additionalProperties: false
+    Document:
+      oneOf:
+      - $ref: '#/components/schemas/Input'
+      - $ref: '#/components/schemas/Pipeline'
+      - $ref: '#/components/schemas/Worker'
+      - $ref: '#/components/schemas/Workspace'
+      - $ref: '#/components/schemas/Runner'
+      discriminator:
+        propertyName: kind
+        mapping:
+          Input: '#/components/schemas/Input'
+          Pipeline: '#/components/schemas/Pipeline'
+          Worker: '#/components/schemas/Worker'
+          Workspace: '#/components/schemas/Workspace'
+          Runner: '#/components/schemas/Runner'

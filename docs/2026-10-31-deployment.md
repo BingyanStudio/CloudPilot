@@ -1,0 +1,77 @@
+# 部署与开发
+
+## 启动配置
+
+复制仓库根目录的 `config.example.yaml` 为 `config.yaml`。服务使用 Viper 读取该 YAML；未知字段会报错。`-config` 可以指定其他文件。相对路径以进程工作目录为基准。
+
+| 配置项 | 默认值 | 用途 |
+| --- | --- | --- |
+| `server.address` | `:8080` | HTTP API 与静态前端 |
+| `server.frontend_dir` | `frontend/dist` | Vite 构建目录 |
+| `server.secure_cookies` | `false` | HTTPS 部署时设为 `true` |
+| `database.driver` | `sqlite` | `sqlite`、`postgres` 或 `mysql` |
+| `database.dsn` | `data/cloudpilot.db` | 数据库连接串或 SQLite 文件 |
+| `admin.username` | `admin` | 首次启动创建的管理员 |
+| `admin.password` | 空 | 首次创建管理员使用的密码 |
+| `runtime.data_dir` | `data/runs` | 运行产物存储目录 |
+| `scheduler.poll_interval` | `2s` | 调度检查间隔，100ms 至 1m |
+| `metrics.address` | 空 | 独立 Metrics 监听地址；留空禁用 |
+
+配置可通过 `CLOUDPILOT_` 环境变量覆盖，层级分隔符替换为下划线，例如 `CLOUDPILOT_DATABASE_DSN`、`CLOUDPILOT_SERVER_SECURE_COOKIES`。管理员密码为 12–72 字节，应使用 `CLOUDPILOT_ADMIN_PASSWORD` 注入。已存在的账号不会因为配置文件变更而重置密码。管理员会话有效期为 24 小时。
+
+数据库在启动时执行 GORM 自动迁移。其他数据库的 DSN 示例：
+
+```yaml
+database:
+  driver: postgres
+  dsn: "host=127.0.0.1 port=5432 user=cloudpilot password=replace-me dbname=cloudpilot sslmode=require"
+```
+
+MySQL 使用 `user:password@tcp(host:3306)/cloudpilot?charset=utf8mb4&parseTime=True&loc=UTC`。生产部署通过环境变量提供包含密码的连接串，数据库由运维预先创建。
+
+启动配置与资源配置分开管理：启动配置控制进程、数据库和初始账号；网页 YAML 导入只处理 Input、Pipeline、Worker、Workspace、Runner，不会修改数据库连接或管理员账号。
+
+## Docker Compose
+
+先准备配置和密钥，再构建两个镜像：
+
+```sh
+cp config.example.yaml config.yaml
+cp examples/docker.env.example .env
+# 编辑 .env，设置管理员密码、Webhook secret、模型 API key 和示例所需的 GitHub token。
+make worker-image
+docker compose up --build -d
+```
+
+管理界面位于 <http://localhost:8080>。Compose 默认只向本机暴露 8080 和 9090；Metrics 使用独立端口 <http://localhost:9090/metrics>。数据库和文件产物持久化在 `cloudpilot-data` 卷。配置文件通过只读挂载提供；修改后重启服务。
+
+服务容器需要 Docker CLI 和 `/var/run/docker.sock` 才能创建执行容器。执行容器使用 `docker cp` 接收工作配置、返回产物，无需映射服务容器内部的主机路径，也不挂载 Docker socket。自定义 `DOCKER_HOST` 时应确保服务能访问对应 daemon；运行镜像必须存在于该 daemon 或可从镜像仓库拉取。
+
+需要自定义代理 CA 的构建环境可向两个 Dockerfile 传入可选的 BuildKit secret：`docker build --secret id=proxy_ca,src=/path/to/ca.pem ...`。CA 仅在依赖安装步骤挂载，不写入镜像层；继续保留环境提供的代理设置和 TLS 验证。
+
+Docker socket 使控制平面拥有管理 daemon 的权限。仅向受信任的管理员开放控制平面；Workspace 的 setup 命令、MCP、仓库及镜像均由管理员配置，执行代码可使用分配给该任务的凭据。生产环境应使用专用 runner 主机或隔离的 Docker daemon，并按实际任务权限配置模型及 GitHub 凭据。
+
+## HTTPS 和数据备份
+
+将服务放在 HTTPS 反向代理后，设置 `server.secure_cookies: true`，保留原始 `Host`。浏览器写请求会校验 `Origin` 与请求 `Host`，前端和 API 应部署在同一站点。代理只应转发受信任的客户端地址头。首次设置账号后，避免把启动配置、`.env` 或数据库文件提交到仓库。
+
+数据库保存配置、事件、运行记录、日志、会话和产物元信息；`runtime.data_dir` 保存文件产物。备份和恢复应同时覆盖两者。SQLite 在线备份应使用 SQLite 的备份机制；直接复制文件前先停止服务。
+
+当前版本只运行一个调度服务实例。多个实例共享数据库可能超出 Pipeline 并发配额，尚未提供 leader election 或分布式租约。停止服务会取消活动执行；重启后调度器修复被中断的运行状态，并按重试策略处理事件。
+
+## 开发和检查
+
+`make install` 安装锁定的 Go 与前端依赖；`make dev` 启动 API；`make frontend-dev` 启动 Vite，代理 `/api`、`/hooks`、`/health` 到 `127.0.0.1:8080`。`make build` 输出 `bin/cloudpilot` 和 `frontend/dist`。
+
+`make test` 执行 Go 测试、`go vet` 和 TypeScript/Vite 构建。CI 还执行 Go race 检测。Docker runner 的集成验证使用确定性的执行镜像，无需调用付费模型：
+
+```sh
+make worker-image
+docker build -t cloudpilot-fixture:latest internal/runtime/testdata
+CLOUDPILOT_TEST_DOCKER_IMAGE=cloudpilot-fixture:latest go test ./internal/runtime -run TestDockerExecution -v
+CLOUDPILOT_TEST_CODEX_IMAGE=cloudpilot-codex:latest go test ./internal/runtime -run TestCodexProtocol -v
+```
+
+这些检查分别覆盖容器生命周期、产物收集、密钥脱敏及取消后的清理，以及真实 Codex CLI 对本地模拟 Responses endpoint 的协议交互；均不调用付费模型。未设置相应镜像变量时，日常 `go test ./...` 跳过需要 daemon 的集成用例。
+
+设置 `CLOUDPILOT_TEST_POSTGRES_DSN` 或 `CLOUDPILOT_TEST_MYSQL_DSN` 后，运行 `go test ./internal/model -run TestDatabaseIntegration -v` 可检查对应数据库的迁移、长文本、幂等约束和事务回滚。必须使用名称以 `cloudpilot_test_` 开头的专用空测试数据库，不能指向生产数据库。

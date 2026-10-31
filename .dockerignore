@@ -1,0 +1,15 @@
+.git
+.github
+**/node_modules
+frontend/dist
+bin
+data
+config.yaml
+.env
+.env.*
+*.db
+*.db-*
+*.log
+coverage.*
+**/test-results
+**/playwright-report

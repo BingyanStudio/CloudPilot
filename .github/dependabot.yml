@@ -15,3 +15,18 @@ updates:
         applies-to: security-updates
         patterns:
           - "*"
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    groups:
+      frontend:
+        patterns: ["*"]
+  - package-ecosystem: "docker"
+    directories: ["/", "/deploy/worker"]
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

@@ -32,3 +32,19 @@ cmd/config/
 .idea/
 .vscode/
 .claude
+
+# Local CloudPilot configuration and generated state
+/config.yaml
+/data/
+/bin/
+/frontend/node_modules/
+/frontend/dist/
+/frontend/.vite/
+/frontend/test-results/
+/frontend/playwright-report/
+*.db
+*.db-shm
+*.db-wal
+*.log
+.env.*
+!.env.example
