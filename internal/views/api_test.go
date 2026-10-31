@@ -156,6 +156,24 @@ spec: {pipelineRef: nightly, secretRef: FEEDBACK_TOKEN}
 	if got := request("GET", "/api/overview", "", cookie, nil).Code; got != 200 {
 		t.Fatalf("overview status %d", got)
 	}
+	legacy := model.Run{EventID: original.ID, PipelineName: original.PipelineName, Status: "succeeded", StartedAt: time.Now().UTC()}
+	if err := db.Create(&legacy).Error; err != nil {
+		t.Fatal(err)
+	}
+	response = request("GET", fmt.Sprintf("/api/runs/%d", legacy.ID), "", cookie, nil)
+	var detail struct {
+		Session      *model.AgentSession `json:"session"`
+		Capabilities map[string]bool     `json:"capabilities"`
+		Turns        []model.AgentTurn   `json:"turns"`
+	}
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &detail) != nil || detail.Session != nil || detail.Turns == nil || len(detail.Turns) != 0 || len(detail.Capabilities) != 5 {
+		t.Fatalf("legacy run lacks safe session defaults: %d %s", response.Code, response.Body)
+	}
+	for _, enabled := range detail.Capabilities {
+		if enabled {
+			t.Fatal("legacy run advertised interactive actions")
+		}
+	}
 	if got := request("POST", "/api/auth/logout", "", cookie, nil).Code; got != 204 {
 		t.Fatalf("logout status %d", got)
 	}

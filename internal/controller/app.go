@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -323,19 +324,47 @@ func (a *App) Run(c *echo.Context) error {
 	if err != nil {
 		return fail(c, http.StatusBadRequest, err.Error())
 	}
+	// Engine reads acquire its mutex before accessing the database; keep that lock order outside the snapshot transaction.
+	observedSession, capabilities, err := a.sessionInfo(id)
+	if err != nil {
+		return persistenceError(c, err)
+	}
 	var run model.Run
-	if err := a.DB.First(&run, id).Error; err != nil {
-		return persistenceError(c, err)
-	}
 	var event model.Event
-	if err := a.DB.First(&event, run.EventID).Error; err != nil {
+	var session *model.AgentSession
+	artifacts := make([]model.Artifact, 0)
+	turns := make([]model.AgentTurn, 0)
+	err = a.DB.WithContext(c.Request().Context()).Transaction(func(tx *gorm.DB) error {
+		if err := tx.First(&run, id).Error; err != nil {
+			return err
+		}
+		if err := tx.First(&event, run.EventID).Error; err != nil {
+			return err
+		}
+		var stored model.AgentSession
+		if err := tx.Where("run_id = ?", id).First(&stored).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		} else {
+			session = &stored
+		}
+		if err := tx.Where("run_id = ?", id).Order("id ASC").Find(&artifacts).Error; err != nil {
+			return err
+		}
+		return tx.Where("run_id = ?", id).Order("number ASC, id ASC").Find(&turns).Error
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
 		return persistenceError(c, err)
 	}
-	artifacts := make([]model.Artifact, 0)
-	if err := a.DB.Where("run_id = ?", id).Order("id ASC").Find(&artifacts).Error; err != nil {
-		return internal(c, err)
+	if observedSession == nil || session == nil || observedSession.ID != session.ID || observedSession.State != session.State || observedSession.ThreadID != session.ThreadID || observedSession.CurrentTurnID != session.CurrentTurnID || !observedSession.UpdatedAt.Equal(session.UpdatedAt) {
+		// A transition between the live capability check and the snapshot must not advertise stale actions.
+		capabilities.CanSend, capabilities.CanInterrupt, capabilities.CanResume, capabilities.CanClose = false, false, false, false
 	}
-	return c.JSON(http.StatusOK, map[string]any{"run": run, "event": event, "artifacts": artifacts})
+	return c.JSON(http.StatusOK, map[string]any{
+		"run": run, "event": event, "artifacts": artifacts,
+		"session": session, "capabilities": capabilities, "turns": turns,
+	})
 }
 
 // Logs supports incremental polling using the last observed log ID.
@@ -350,7 +379,7 @@ func (a *App) Logs(c *echo.Context) error {
 	}
 	after := uint64(0)
 	if value := c.QueryParam("after"); value != "" {
-		after, err = strconv.ParseUint(value, 10, 64)
+		after, err = strconv.ParseUint(value, 10, 63)
 		if err != nil {
 			return fail(c, http.StatusBadRequest, "after must be an unsigned log ID")
 		}
