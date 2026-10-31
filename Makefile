@@ -18,6 +18,7 @@ build:
 test:
 	go test ./...
 	go vet ./...
+	pnpm --dir frontend test
 	pnpm --dir frontend build
 
 worker-image:

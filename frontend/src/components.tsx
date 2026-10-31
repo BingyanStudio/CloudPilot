@@ -92,19 +92,32 @@ const statuses: Record<
   { label: string; color: 'blue' | 'green' | 'red' | 'gray' | 'purple' }
 > = {
   queued: { label: '等待调度', color: 'blue' },
+  waiting: { label: '等待继续', color: 'blue' },
+  starting: { label: '准备会话', color: 'blue' },
   running: { label: '运行中', color: 'purple' },
   succeeded: { label: '已完成', color: 'green' },
+  completed: { label: '已完成', color: 'green' },
+  idle: { label: '可继续', color: 'green' },
+  interrupted: { label: '已中断', color: 'gray' },
+  interrupting: { label: '正在中断', color: 'purple' },
+  closing: { label: '正在结束', color: 'gray' },
+  closed: { label: '已结束', color: 'gray' },
+  inProgress: { label: '执行中', color: 'purple' },
+  streaming: { label: '正在输出', color: 'purple' },
+  accepted: { label: '已接收', color: 'green' },
+  rejected: { label: '未送达', color: 'red' },
+  unconfirmed: { label: '状态未确认', color: 'gray' },
   failed: { label: '失败', color: 'red' },
   cancelled: { label: '已取消', color: 'gray' },
   paused: { label: '已暂停', color: 'gray' },
   active: { label: '已启用', color: 'green' },
 };
-export function Status({ value }: { value: string }) {
+export function Status({ value, label }: { value: string; label?: string }) {
   const state = statuses[value] || { label: value, color: 'gray' as const };
   return (
     <Tag type={state.color} size="sm">
       <span className={`status-dot ${value}`} />
-      {state.label}
+      {label || state.label}
     </Tag>
   );
 }

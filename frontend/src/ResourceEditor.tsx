@@ -117,7 +117,10 @@ export default function ResourceEditor({
   );
   const spec = doc.spec;
   const set = (key: string, value: unknown) =>
-    setDoc((current) => ({ ...current, spec: { ...current.spec, [key]: value } }));
+    setDoc((current) => ({
+      ...current,
+      spec: { ...current.spec, [key]: value },
+    }));
   const text = (key: string) => String(spec[key] ?? '');
   const field = (key: string, label: string, helper?: string, placeholder?: string) => (
     <TextInput
@@ -161,7 +164,7 @@ export default function ResourceEditor({
         ))}
     </Select>
   );
-  const number = (key: string, label: string, min: number, max: number) => (
+  const number = (key: string, label: string, min: number, max: number, helper?: string) => (
     <NumberInput
       key={key}
       id={`resource-${key}`}
@@ -169,6 +172,7 @@ export default function ResourceEditor({
       value={Number(spec[key] ?? min)}
       min={min}
       max={max}
+      helperText={helper}
       onChange={(_, data) => set(key, Number(data.value))}
     />
   );
@@ -257,7 +261,11 @@ export default function ResourceEditor({
       setBusy(false);
     }
   };
-  const repositories = (spec.repositories || []) as { url: string; ref: string; path: string }[];
+  const repositories = (spec.repositories || []) as {
+    url: string;
+    ref: string;
+    path: string;
+  }[];
   const repoField = (
     index: number,
     key: 'url' | 'ref' | 'path',
@@ -315,7 +323,10 @@ export default function ResourceEditor({
                     onChange={(event) =>
                       setDoc((current) => ({
                         ...current,
-                        metadata: { ...current.metadata, name: event.target.value },
+                        metadata: {
+                          ...current.metadata,
+                          name: event.target.value,
+                        },
                       }))
                     }
                   />
@@ -353,8 +364,20 @@ export default function ResourceEditor({
                         )}
                         {field('timezone', '时区', 'IANA 时区，例如 Asia/Shanghai。')}
                         {number('concurrency', '最大并发', 1, 32)}
-                        {number('maxRetries', '失败重试次数', 0, 10)}
-                        {number('timeoutSeconds', '单次运行超时（秒）', 10, 86400)}
+                        {number(
+                          'maxRetries',
+                          '自动重试次数',
+                          0,
+                          10,
+                          '适用于批处理及交互会话建立前的启动失败。会话建立后的失败需要人工继续。',
+                        )}
+                        {number(
+                          'timeoutSeconds',
+                          '每轮执行超时（秒）',
+                          10,
+                          86400,
+                          '每轮继续执行独立计时；等待人工输入不占用运行并发。',
+                        )}
                         {paused}
                       </>
                     )}

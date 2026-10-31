@@ -61,6 +61,7 @@ import {
   type RunLog,
 } from './types';
 import ResourceEditor from './ResourceEditor';
+import RunConversation from './RunConversation';
 
 export function Dashboard() {
   const overview = useData<Overview>('/api/overview', 10000);
@@ -69,7 +70,7 @@ export function Dashboard() {
   const stats = [
     {
       label: '等待处理',
-      value: overview.data?.events.queued ?? 0,
+      value: (overview.data?.events.queued ?? 0) + (overview.data?.events.waiting ?? 0),
       caption: '队列中的反馈事件',
       color: 'blue',
     },
@@ -87,8 +88,8 @@ export function Dashboard() {
     },
     {
       label: '需要关注',
-      value: overview.data?.runs.failed ?? 0,
-      caption: '执行失败的运行',
+      value: (overview.data?.runs.failed ?? 0) + (overview.data?.runs.interrupted ?? 0),
+      caption: '失败或中断的运行',
       color: 'red',
     },
   ];
@@ -414,7 +415,10 @@ export function Resources({ kind, name }: { kind: Kind; name?: string }) {
                                     method: 'PUT',
                                     body: JSON.stringify({
                                       ...item,
-                                      spec: { ...item.spec, paused: !item.spec.paused },
+                                      spec: {
+                                        ...item.spec,
+                                        paused: !item.spec.paused,
+                                      },
                                     }),
                                   }),
                                 item.spec.paused ? '已启用' : '已暂停',
@@ -478,7 +482,8 @@ export function Resources({ kind, name }: { kind: Kind; name?: string }) {
         }}
       >
         <p>
-          确定删除 <strong>{deleting?.metadata.name}</strong>？正在被其他资源引用的配置无法删除。
+          确定删除 <strong>{deleting?.metadata.name}</strong>
+          ？正在被其他资源引用的配置无法删除。
         </p>
         {actionError && <ErrorNotice error={actionError} />}
       </Modal>
@@ -508,7 +513,9 @@ export function Configuration() {
   const exportYAML = async () => {
     setError('');
     try {
-      const response = await fetch('/api/config/export', { credentials: 'same-origin' });
+      const response = await fetch('/api/config/export', {
+        credentials: 'same-origin',
+      });
       if (!response.ok) throw new Error('导出失败，请检查登录状态并重试。');
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -644,7 +651,12 @@ export function Events() {
       refresh();
       setSelected(null);
     } catch (cause) {
-      setActionError(message(cause));
+      const detail = message(cause);
+      setActionError(
+        detail.includes('close the existing interactive session')
+          ? '此事件仍有可继续的 Agent 会话。请到运行详情继续处理，或结束会话后重新入队。'
+          : detail,
+      );
     } finally {
       setBusy(false);
     }
@@ -782,8 +794,8 @@ function Filters({
       >
         <SelectItem value="" text="全部状态" />
         {(events
-          ? ['queued', 'running', 'succeeded', 'failed', 'cancelled']
-          : ['running', 'succeeded', 'failed', 'cancelled']
+          ? ['queued', 'waiting', 'running', 'interrupted', 'succeeded', 'failed', 'cancelled']
+          : ['queued', 'running', 'interrupted', 'succeeded', 'failed', 'cancelled']
         ).map((value) => (
           <SelectItem
             key={value}
@@ -791,6 +803,8 @@ function Filters({
             text={
               {
                 queued: '等待调度',
+                waiting: '等待继续',
+                interrupted: '已中断',
                 running: '运行中',
                 succeeded: '已完成',
                 failed: '失败',
@@ -877,7 +891,7 @@ export function Runs() {
 }
 
 export function RunPage({ id }: { id: string }) {
-  const { data, error, loading, refresh } = useData<RunDetail>(`/api/runs/${id}`, 3000);
+  const { data, error, loading, refresh } = useData<RunDetail>(`/api/runs/${id}`, 2000);
   const [logs, setLogs] = useState<RunLog[]>([]);
   const [logError, setLogError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -918,77 +932,38 @@ export function RunPage({ id }: { id: string }) {
     };
   }, [id]);
   useEffect(() => {
-    if (autoScroll) logEnd.current?.scrollIntoView({ block: 'nearest' });
+    if (autoScroll && logEnd.current?.offsetParent)
+      logEnd.current.scrollIntoView({ block: 'nearest' });
   }, [logs, autoScroll]);
-  const act = async (path: string) => {
+  const act = async (path: string, body?: unknown): Promise<boolean> => {
     setBusy(true);
     setActionError('');
     try {
-      await post(path);
+      await post(path, body);
       refresh();
       setConfirmCancel(false);
+      return true;
     } catch (cause) {
       setActionError(message(cause));
+      return false;
     } finally {
       setBusy(false);
     }
   };
   if (loading && !data) return <LoadingState />;
   if (!data) return <ErrorNotice error={error || '运行记录不存在。'} />;
-  const { run, event, artifacts } = data;
-  return (
+  if (String(data.run.id) !== id) return <LoadingState />;
+  const { run, event, artifacts, session, turns = [] } = data;
+  const capabilities = data.capabilities || {
+    interactive: false,
+    canSend: false,
+    canInterrupt: false,
+    canResume: false,
+    canClose: false,
+  };
+  const interactive = Boolean(session) || capabilities.interactive;
+  const rawLogs = (
     <>
-      <a className="back-link" href="#/runs">
-        ← 返回运行记录
-      </a>
-      <PageHeading
-        eyebrow={`RUN / ${run.pipelineName}`}
-        title={`RUN-${String(run.id).padStart(4, '0')}`}
-        description={`事件 EVT-${event.id} · 第 ${run.attempt} 次尝试 · ${formatTime(run.startedAt)} 开始（Asia/Shanghai）`}
-        actions={
-          <>
-            <Status value={run.status} />
-            {status === 'running' && (
-              <Button
-                kind="danger--tertiary"
-                size="md"
-                renderIcon={Stop}
-                disabled={busy}
-                onClick={() => setConfirmCancel(true)}
-              >
-                取消运行
-              </Button>
-            )}
-            {['failed', 'cancelled'].includes(event.status) && (
-              <Button
-                kind="tertiary"
-                size="md"
-                renderIcon={Renew}
-                disabled={busy}
-                onClick={() => void act(`/api/events/${event.id}/retry`)}
-              >
-                重新入队
-              </Button>
-            )}
-          </>
-        }
-      />
-      <ErrorNotice error={error || actionError} />
-      {run.error && (
-        <InlineNotification
-          kind="error"
-          title="运行错误"
-          subtitle={run.error}
-          hideCloseButton
-          lowContrast
-        />
-      )}
-      <div className="panel metadata-grid">
-        <MetadataItem label="智能体">{run.workerName}</MetadataItem>
-        <MetadataItem label="工作空间">{run.workspaceName}</MetadataItem>
-        <MetadataItem label="运行设施">{run.runnerName}</MetadataItem>
-        <MetadataItem label="执行耗时">{duration(run)}</MetadataItem>
-      </div>
       <div className="section-line">
         <div>
           <h2>执行日志</h2>
@@ -1035,6 +1010,76 @@ export function RunPage({ id }: { id: string }) {
           <div ref={logEnd} />
         </div>
       </div>
+    </>
+  );
+  return (
+    <>
+      <a className="back-link" href="#/runs">
+        ← 返回运行记录
+      </a>
+      <PageHeading
+        eyebrow={`RUN / ${run.pipelineName}`}
+        title={`RUN-${String(run.id).padStart(4, '0')}`}
+        description={`事件 EVT-${event.id} · 第 ${run.attempt} 次尝试 · ${formatTime(run.startedAt)} 开始（Asia/Shanghai）`}
+        actions={
+          <>
+            <Status value={run.status} />
+            {status === 'running' && !interactive && (
+              <Button
+                kind="danger--tertiary"
+                size="md"
+                renderIcon={Stop}
+                disabled={busy}
+                onClick={() => setConfirmCancel(true)}
+              >
+                取消运行
+              </Button>
+            )}
+            {(!interactive || session?.state === 'closed') &&
+              ['failed', 'cancelled'].includes(event.status) && (
+                <Button
+                  kind="tertiary"
+                  size="md"
+                  renderIcon={Renew}
+                  disabled={busy}
+                  onClick={() => void act(`/api/events/${event.id}/retry`)}
+                >
+                  重新入队
+                </Button>
+              )}
+          </>
+        }
+      />
+      <ErrorNotice error={error || actionError} />
+      {run.error && (
+        <InlineNotification
+          kind="error"
+          title="运行错误"
+          subtitle={run.error}
+          hideCloseButton
+          lowContrast
+        />
+      )}
+      <div className="panel metadata-grid">
+        <MetadataItem label="智能体">{run.workerName}</MetadataItem>
+        <MetadataItem label="工作空间">{run.workspaceName}</MetadataItem>
+        <MetadataItem label="运行设施">{run.runnerName}</MetadataItem>
+        <MetadataItem label="执行耗时">{duration(run)}</MetadataItem>
+      </div>
+      {interactive ? (
+        <RunConversation
+          id={id}
+          session={session}
+          turns={turns}
+          capabilities={capabilities}
+          busy={busy}
+          actionError={actionError}
+          perform={act}
+          rawLogs={rawLogs}
+        />
+      ) : (
+        rawLogs
+      )}
       <div className="section-line">
         <div>
           <h2>运行产物</h2>
@@ -1052,7 +1097,7 @@ export function RunPage({ id }: { id: string }) {
         danger
         modalHeading="取消本次运行？"
         primaryButtonText="取消运行"
-        secondaryButtonText="继续运行"
+        secondaryButtonText="返回"
         primaryButtonDisabled={busy}
         onRequestClose={() => setConfirmCancel(false)}
         onRequestSubmit={() => void act(`/api/runs/${id}/cancel`)}

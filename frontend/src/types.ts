@@ -54,6 +54,57 @@ export interface RunDetail {
   run: Run;
   event: Event;
   artifacts: Artifact[];
+  session: AgentSession | null;
+  capabilities: SessionCapabilities;
+  turns: AgentTurn[];
+}
+export interface AgentSession {
+  id: number;
+  runId: number;
+  threadId: string;
+  state: string;
+  currentTurnId: number;
+  lastError: string;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+}
+export interface SessionCapabilities {
+  interactive: boolean;
+  canSend: boolean;
+  canInterrupt: boolean;
+  canResume: boolean;
+  canClose: boolean;
+}
+export interface AgentTurn {
+  id: number;
+  runId: number;
+  sessionId: number;
+  number: number;
+  providerTurnId: string;
+  input: string;
+  initial: boolean;
+  userId: number;
+  status: string;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+export interface SessionEvent {
+  id: number;
+  runId: number;
+  turnId: number;
+  type: string;
+  itemId: string;
+  role: string;
+  status: string;
+  text: string;
+  tool: string;
+  command: string;
+  output: string;
+  delta: boolean;
+  controlId: number;
+  createdAt: string;
 }
 export interface Overview {
   resources: Record<string, number>;
@@ -100,7 +151,14 @@ export function template(kind: Kind): Resource {
       apiKeySecretRef: 'OPENAI_API_KEY',
       instructions: '',
     },
-    Workspace: { repositories: [], prompt: '', tools: [], mcpServers: {}, env: {}, secretEnv: {} },
+    Workspace: {
+      repositories: [],
+      prompt: '',
+      tools: [],
+      mcpServers: {},
+      env: {},
+      secretEnv: {},
+    },
     Runner: {
       type: 'docker',
       image: 'cloudpilot-codex:latest',
@@ -109,5 +167,10 @@ export function template(kind: Kind): Resource {
       cpus: '2',
     },
   };
-  return { apiVersion: 'cloudpilot.dev/v1alpha1', kind, metadata: { name: '' }, spec: specs[kind] };
+  return {
+    apiVersion: 'cloudpilot.dev/v1alpha1',
+    kind,
+    metadata: { name: '' },
+    spec: specs[kind],
+  };
 }

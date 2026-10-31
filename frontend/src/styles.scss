@@ -953,6 +953,463 @@ pre {
   background: #fff;
   border: 1px solid #e0e0e0;
 }
+
+.run-session {
+  margin-top: 28px;
+  min-width: 0;
+}
+.session-banner {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 22px 24px;
+  background: #edf5ff;
+  border: 1px solid #d0e2ff;
+  border-left: 3px solid #0f62fe;
+}
+.session-emblem {
+  display: flex;
+  color: #0f62fe;
+}
+.session-summary {
+  flex: 1;
+  min-width: 0;
+}
+.session-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 4px;
+}
+.session-title strong {
+  font-size: 15px;
+  font-weight: 500;
+}
+.session-summary p {
+  color: #525252;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.session-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.session-closed,
+.session-closing {
+  background: #e8e8e8;
+  border-color: #d6d6d6;
+  border-left-color: #8d8d8d;
+}
+.session-closed .session-emblem,
+.session-closing .session-emblem {
+  color: #6f6f6f;
+}
+.session-tabs {
+  margin-top: 18px;
+  border: 1px solid #e0e0e0;
+  background: #fff;
+}
+.session-tabs .cds--tab--list {
+  padding: 0 24px;
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+}
+.session-tabs .cds--tab-content {
+  padding: 0;
+}
+.conversation-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 24px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.conversation-toolbar > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+.conversation-toolbar strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.conversation-toolbar span {
+  color: #8d8d8d;
+  font-size: 11px;
+}
+.conversation-scroll {
+  padding: 8px 28px 28px;
+  max-height: 640px;
+  min-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: #fdfdfd;
+  scrollbar-gutter: stable;
+}
+.conversation-scroll:focus-visible {
+  outline: 2px solid #0f62fe;
+  outline-offset: -2px;
+}
+.turn-divider {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 23px 0 18px;
+  color: #8d8d8d;
+  font-size: 10px;
+}
+.conversation-turn + .conversation-turn {
+  border-top: 1px solid #e0e0e0;
+  margin-top: 24px;
+}
+.turn-divider .turn-number {
+  color: #525252;
+  font-size: 11px;
+  font-weight: 600;
+}
+.turn-divider time {
+  margin-left: auto;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.turn-empty {
+  font-size: 12px;
+  color: #8d8d8d;
+  padding: 12px 0;
+}
+.conversation-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  margin: 16px 0 22px;
+}
+.message-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  margin-top: 1px;
+  background: #161616;
+  color: #f4f4f4;
+}
+.message-main {
+  flex: 1;
+  min-width: 0;
+}
+.message-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 29px;
+  margin-bottom: 9px;
+  flex-wrap: wrap;
+}
+.message-meta strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.message-meta time {
+  color: #8d8d8d;
+  font-size: 10px;
+}
+.message-content {
+  font-size: 13px;
+  line-height: 1.9;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.message-user {
+  margin-left: 44px;
+  padding: 16px 18px;
+  background: #edf5ff;
+  border-left: 2px solid #a6c8ff;
+}
+.message-user .message-avatar {
+  background: #d0e2ff;
+  color: #0043ce;
+}
+.message-user .message-content {
+  font-size: 12px;
+}
+.message-user .message-meta {
+  margin-bottom: 5px;
+}
+.message-system .message-avatar {
+  color: #525252;
+  background: #e0e0e0;
+}
+.message-delivery-error {
+  color: #da1e28;
+  font-size: 11px;
+  line-height: 1.6;
+  margin-top: 12px;
+}
+.tool-card {
+  margin: 12px 0 12px 43px;
+  border: 1px solid #e0e0e0;
+  background: #fff;
+}
+.tool-card summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 17px;
+  list-style: none;
+  cursor: pointer;
+}
+.tool-card summary::-webkit-details-marker {
+  display: none;
+}
+.tool-card summary::after {
+  content: '›';
+  font-size: 19px;
+  color: #6f6f6f;
+}
+.tool-card[open] summary::after {
+  transform: rotate(90deg);
+}
+.tool-card summary:focus-visible {
+  outline: 2px solid #0f62fe;
+  outline-offset: -2px;
+}
+.tool-card summary > svg {
+  flex-shrink: 0;
+  color: #6f6f6f;
+}
+.tool-card-title {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+.tool-card-title strong {
+  font-size: 11px;
+  font-weight: 500;
+}
+.tool-card-title code {
+  color: #6f6f6f;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-expand-label {
+  color: #8d8d8d;
+  font-size: 10px;
+}
+.tool-card-body {
+  padding: 18px;
+  border-top: 1px solid #e0e0e0;
+  background: #f4f4f4;
+}
+.tool-card-body .eyebrow {
+  font-size: 9px;
+  margin-bottom: 7px;
+}
+.tool-card-body pre {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  background: #262626;
+  color: #e0e0e0;
+  font-size: 11px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 360px;
+  overflow: auto;
+}
+.tool-description {
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+  margin-bottom: 12px;
+}
+.tool-card-body > time,
+.timeline-truncated {
+  display: block;
+  color: #8d8d8d;
+  font-size: 10px;
+  line-height: 1.6;
+  margin-top: 10px;
+}
+.tool-failed {
+  border-left: 2px solid #da1e28;
+}
+.timeline-status {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 12px 0 12px 44px;
+  color: #8d8d8d;
+  font-size: 10px;
+  line-height: 1.7;
+}
+.timeline-status > span {
+  width: 4px;
+  height: 4px;
+  background: #a8a8a8;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.timeline-status p {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.timeline-status time {
+  white-space: nowrap;
+}
+.timeline-error {
+  margin: 12px 0;
+  max-width: none;
+}
+.conversation-composer {
+  padding: 22px 24px;
+  border-top: 1px solid #e0e0e0;
+  background: #fff;
+}
+.conversation-composer .cds--text-area {
+  min-height: 86px;
+}
+.composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 16px;
+}
+.composer-footer > p {
+  font-size: 11px;
+  line-height: 1.7;
+  color: #6f6f6f;
+}
+.composer-footer > p span {
+  display: block;
+  font-size: 10px;
+  margin-top: 3px;
+  color: #8d8d8d;
+}
+.composer-footer .cds--btn {
+  flex-shrink: 0;
+  min-width: 145px;
+}
+.session-closed-note {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 18px 24px;
+  border-top: 1px solid #e0e0e0;
+  font-size: 12px;
+  color: #6f6f6f;
+  line-height: 1.7;
+}
+.session-closed-note svg {
+  flex-shrink: 0;
+}
+.session-raw-logs {
+  padding: 0 24px 24px;
+}
+.close-session-note {
+  margin-top: 16px;
+  color: #6f6f6f;
+  font-size: 13px;
+  line-height: 1.7;
+}
+@media (max-width: 1100px) {
+  .session-banner {
+    flex-wrap: wrap;
+  }
+  .session-controls {
+    margin-left: 42px;
+  }
+}
+@media (max-width: 767px) {
+  .session-banner {
+    padding: 18px 16px;
+    gap: 12px;
+  }
+  .session-controls {
+    margin-left: 0;
+    width: 100%;
+  }
+  .session-tabs .cds--tab--list {
+    padding: 0 12px;
+  }
+  .conversation-toolbar {
+    padding: 16px;
+  }
+  .conversation-toolbar > div:first-child {
+    flex-direction: column;
+    gap: 5px;
+  }
+  .conversation-scroll {
+    padding: 0 14px 20px;
+    max-height: 520px;
+  }
+  .turn-divider {
+    gap: 8px;
+  }
+  .turn-divider time {
+    display: none;
+  }
+  .message-user {
+    margin-left: 0;
+    padding: 12px;
+  }
+  .conversation-message {
+    gap: 9px;
+  }
+  .message-avatar {
+    width: 25px;
+    height: 25px;
+  }
+  .message-meta {
+    gap: 6px;
+  }
+  .message-meta time {
+    font-size: 9px;
+  }
+  .tool-card {
+    margin-left: 0;
+  }
+  .tool-card summary {
+    padding: 12px;
+    gap: 8px;
+  }
+  .tool-expand-label {
+    display: none;
+  }
+  .tool-card-body {
+    padding: 12px;
+  }
+  .timeline-status {
+    margin-left: 0;
+  }
+  .timeline-status time {
+    display: none;
+  }
+  .conversation-composer {
+    padding: 18px 16px;
+  }
+  .composer-footer {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .composer-footer .cds--btn {
+    max-width: none;
+    width: 100%;
+  }
+  .session-raw-logs {
+    padding: 0 12px 12px;
+  }
+}
 .event-payload summary {
   padding: 20px;
   font-size: 12px;
