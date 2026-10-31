@@ -180,6 +180,12 @@ func Delete(db *gorm.DB, kind, name string) error {
 			if count > 0 {
 				return fmt.Errorf("%w by queued or running events", ErrReferenced)
 			}
+			if err := tx.Model(&model.AgentSession{}).Joins("JOIN runs ON runs.id = agent_sessions.run_id").Where("runs.pipeline_name = ? AND agent_sessions.state <> ?", name, "closed").Count(&count).Error; err != nil {
+				return err
+			}
+			if count > 0 {
+				return fmt.Errorf("%w by open agent sessions; close them before deleting the pipeline", ErrReferenced)
+			}
 		}
 		return tx.Delete(&item).Error
 	})

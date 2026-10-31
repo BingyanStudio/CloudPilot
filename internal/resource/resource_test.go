@@ -115,4 +115,24 @@ func TestManifestApplyRoundTripAndAtomicValidation(t *testing.T) {
 	if _, err = ParseYAML([]byte("kind: Input\nkind: Worker")); err == nil {
 		t.Fatal("duplicate YAML key was accepted")
 	}
+	if err := Delete(db, "Input", "feedback"); err != nil {
+		t.Fatal(err)
+	}
+	run := model.Run{PipelineName: "nightly", Status: "succeeded"}
+	if err := db.Create(&run).Error; err != nil {
+		t.Fatal(err)
+	}
+	session := model.AgentSession{RunID: run.ID, State: "idle"}
+	if err := db.Create(&session).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := Delete(db, "Pipeline", "nightly"); !errors.Is(err, ErrReferenced) {
+		t.Fatalf("open session pipeline was removed: %v", err)
+	}
+	if err := db.Model(&session).Update("state", "closed").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := Delete(db, "Pipeline", "nightly"); err != nil {
+		t.Fatalf("closed session should not block pipeline deletion: %v", err)
+	}
 }

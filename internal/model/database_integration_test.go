@@ -61,6 +61,30 @@ func TestDatabaseIntegration(t *testing.T) {
 			if !bytes.Equal(resource.Spec, payload) || !bytes.Equal(event.Payload, payload) || run.Error != large || log.Message != large || artifact.Content != large {
 				t.Fatal("JSON or text larger than 64 KiB did not survive storage intact")
 			}
+			session := model.AgentSession{RunID: run.ID, State: "idle", ThreadID: "provider-thread", Snapshot: payload}
+			if err := db.Create(&session).Error; err != nil {
+				t.Fatal(err)
+			}
+			turn := model.AgentTurn{RunID: run.ID, SessionID: session.ID, Number: 1, Status: "completed", Input: large}
+			if err := db.Create(&turn).Error; err != nil {
+				t.Fatal(err)
+			}
+			update := model.SessionEvent{RunID: run.ID, TurnID: turn.ID, Type: "tool", ItemID: "command-1", Output: large, Status: "completed"}
+			if err := db.Create(&update).Error; err != nil {
+				t.Fatal(err)
+			}
+			for _, record := range []any{&session, &turn, &update} {
+				if err := db.First(record).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !bytes.Equal(session.Snapshot, payload) || turn.Input != large || update.Output != large {
+				t.Fatal("interactive history did not survive storage intact")
+			}
+			duplicateTurn := model.AgentTurn{RunID: run.ID, SessionID: session.ID, Number: turn.Number}
+			if err := db.Create(&duplicateTurn).Error; !errors.Is(err, gorm.ErrDuplicatedKey) {
+				t.Fatalf("per-session turn uniqueness: %v", err)
+			}
 
 			duplicateResource := model.Resource{Kind: resource.Kind, Name: resource.Name, Spec: payload}
 			if err := db.Create(&duplicateResource).Error; !errors.Is(err, gorm.ErrDuplicatedKey) {
@@ -133,7 +157,7 @@ func integrationDatabase(t *testing.T, driver, dsn string) *gorm.DB {
 		t.Fatal("integration database must be empty; refusing to modify existing tables")
 	}
 	t.Cleanup(func() {
-		if err := probe.Migrator().DropTable(&model.PipelineState{}, &model.Artifact{}, &model.RunLog{}, &model.Run{}, &model.Event{}, &model.Session{}, &model.User{}, &model.Resource{}); err != nil {
+		if err := probe.Migrator().DropTable(&model.SessionEvent{}, &model.AgentTurn{}, &model.AgentSession{}, &model.PipelineState{}, &model.Artifact{}, &model.RunLog{}, &model.Run{}, &model.Event{}, &model.Session{}, &model.User{}, &model.Resource{}); err != nil {
 			t.Error(err)
 		}
 	})
