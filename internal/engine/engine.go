@@ -30,6 +30,11 @@ type Task struct {
 type execution struct {
 	cancel    context.CancelFunc
 	cancelled bool
+	closing   bool
+	sessionID uint
+	controls  chan SessionControl
+	pending   map[uint]bool
+	failure   string
 }
 
 // Engine coordinates a single scheduler instance backed by persistent queue state.
@@ -42,6 +47,7 @@ type Engine struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	active  map[uint]*execution
+	closing map[uint]bool
 	started bool
 	stopped bool
 	wg      sync.WaitGroup
@@ -50,7 +56,7 @@ type Engine struct {
 
 // Create configures a scheduler without starting background work.
 func Create(db *gorm.DB, executor Executor) *Engine {
-	return &Engine{DB: db, Executor: executor, active: map[uint]*execution{}, wake: make(chan struct{}, 1)}
+	return &Engine{DB: db, Executor: executor, active: map[uint]*execution{}, closing: map[uint]bool{}, wake: make(chan struct{}, 1)}
 }
 
 // Start recovers interrupted runs and starts dispatching eligible events.
@@ -131,6 +137,14 @@ func (e *Engine) Trigger(name string) error {
 // Cancel requests cancellation of an execution owned by this scheduler.
 func (e *Engine) Cancel(runID uint) error {
 	e.mu.Lock()
+	var session model.AgentSession
+	if err := e.DB.Where("run_id = ?", runID).First(&session).Error; err == nil {
+		e.mu.Unlock()
+		return e.CloseSession(runID)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		e.mu.Unlock()
+		return err
+	}
 	defer e.mu.Unlock()
 	if active, ok := e.active[runID]; ok {
 		active.cancelled = true
@@ -153,8 +167,15 @@ func (e *Engine) Retry(eventID uint) (model.Event, error) {
 		if err := tx.First(&event, eventID).Error; err != nil {
 			return err
 		}
-		if event.Status != "failed" && event.Status != "cancelled" {
-			return errors.New("only failed or cancelled events can be retried")
+		if event.Status != "failed" && event.Status != "cancelled" && event.Status != "interrupted" {
+			return errors.New("only failed, cancelled or interrupted events can be retried")
+		}
+		var open int64
+		if err := tx.Model(&model.AgentSession{}).Joins("JOIN runs ON runs.id = agent_sessions.run_id").Where("runs.event_id = ? AND agent_sessions.state <> ?", eventID, "closed").Count(&open).Error; err != nil {
+			return err
+		}
+		if open > 0 {
+			return errors.New("close the existing interactive session before retrying as a new run")
 		}
 		event.Status, event.Attempts, event.AvailableAt = "queued", 0, time.Now().UTC()
 		return tx.Save(&event).Error

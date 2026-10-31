@@ -90,12 +90,16 @@ func (e *Engine) dispatch(resource model.Resource, now time.Time) error {
 	if spec.TimeoutSeconds < 1 {
 		spec.TimeoutSeconds = 3600
 	}
-	cutoff, err := e.cutoff(resource, spec, now)
-	if err != nil || cutoff == nil {
+	var running int64
+	if err := e.DB.Model(&model.Run{}).Where("pipeline_name = ? AND status = ?", resource.Name, "running").Count(&running).Error; err != nil {
 		return err
 	}
-	var running int64
-	if err = e.DB.Model(&model.Run{}).Where("pipeline_name = ? AND status = ?", resource.Name, "running").Count(&running).Error; err != nil {
+	running, err := e.dispatchTurns(resource.Name, spec.Concurrency, running, now)
+	if err != nil {
+		return err
+	}
+	cutoff, err := e.cutoff(resource, spec, now)
+	if err != nil || cutoff == nil {
 		return err
 	}
 	for running < int64(spec.Concurrency) {
@@ -124,6 +128,14 @@ func (e *Engine) dispatch(resource model.Resource, now time.Time) error {
 			return err
 		}
 		prepareErr := e.prepare(&task)
+		if executor, ok := e.Executor.(InteractiveExecutor); prepareErr == nil && ok && executor.SupportsInteraction(task) {
+			if err := e.startSession(task, now); err == nil {
+				running++
+				continue
+			} else {
+				prepareErr = err
+			}
+		}
 		ctx, cancel := context.WithTimeout(e.ctx, time.Duration(spec.TimeoutSeconds)*time.Second)
 		e.active[task.Run.ID] = &execution{cancel: cancel}
 		e.wg.Go(func() { e.execute(ctx, task, prepareErr) })

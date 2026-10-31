@@ -54,9 +54,13 @@ func (e *Engine) invoke(ctx context.Context, task Task) (artifacts []model.Artif
 			err = fmt.Errorf("executor panic: %v", recovered)
 		}
 	}()
+	return e.Executor.Execute(ctx, task, e.runLogger(task.Run.ID))
+}
+
+func (e *Engine) runLogger(runID uint) func(string, string) {
 	var logMu sync.Mutex
 	count, bytes := 0, 0
-	return e.Executor.Execute(ctx, task, func(stream, message string) {
+	return func(stream, message string) {
 		logMu.Lock()
 		defer logMu.Unlock()
 		if count >= 10000 || bytes >= 10<<20 {
@@ -67,11 +71,11 @@ func (e *Engine) invoke(ctx context.Context, task Task) (artifacts []model.Artif
 		}
 		count++
 		bytes += len(message)
-		entry := model.RunLog{RunID: task.Run.ID, Stream: stream, Message: message}
+		entry := model.RunLog{RunID: runID, Stream: stream, Message: message}
 		if err := e.DB.Create(&entry).Error; err != nil {
-			slog.Error("persist run log failed", "run", task.Run.ID, "error", err)
+			slog.Error("persist run log failed", "run", runID, "error", err)
 		}
-	})
+	}
 }
 
 func (e *Engine) finish(task Task, status, message string, artifacts []model.Artifact, now time.Time) error {
@@ -115,6 +119,9 @@ func retryDelay(attempt int) time.Duration {
 func (e *Engine) recover() error {
 	now := time.Now().UTC()
 	return e.DB.Transaction(func(tx *gorm.DB) error {
+		if err := recoverSessions(tx, now); err != nil {
+			return err
+		}
 		var runs []model.Run
 		if err := tx.Where("status = ?", "running").Find(&runs).Error; err != nil {
 			return err
