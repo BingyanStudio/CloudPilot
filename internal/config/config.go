@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ type Config struct {
 		Address       string `mapstructure:"address"`
 		FrontendDir   string `mapstructure:"frontend_dir"`
 		SecureCookies bool   `mapstructure:"secure_cookies"`
+		PublicURL     string `mapstructure:"public_url"`
 	} `mapstructure:"server"`
 	Database struct {
 		Driver string `mapstructure:"driver"`
@@ -44,7 +46,7 @@ func Load(path string) (Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 	defaults := map[string]any{
-		"server.address": ":8080", "server.frontend_dir": "frontend/dist", "server.secure_cookies": false,
+		"server.address": ":8080", "server.frontend_dir": "frontend/dist", "server.secure_cookies": false, "server.public_url": "",
 		"database.driver": "sqlite", "database.dsn": "data/cloudpilot.db", "admin.username": "admin", "admin.password": "",
 		"runtime.data_dir": "data/runs", "scheduler.poll_interval": "2s", "metrics.address": "",
 	}
@@ -63,6 +65,13 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.Scheduler.PollInterval < 100*time.Millisecond || cfg.Scheduler.PollInterval > time.Minute {
 		return cfg, errors.New("scheduler.poll_interval must be between 100ms and 1m")
+	}
+	if cfg.Server.PublicURL != "" {
+		u, err := url.Parse(cfg.Server.PublicURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(cfg.Server.PublicURL, "#") {
+			return cfg, errors.New("server.public_url must be an absolute HTTP(S) URL without credentials, query or fragment")
+		}
+		cfg.Server.PublicURL = strings.TrimRight(cfg.Server.PublicURL, "/")
 	}
 	abs, err := filepath.Abs(cfg.Runtime.DataDir)
 	if err != nil {

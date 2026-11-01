@@ -44,10 +44,18 @@ func FindResource(db *gorm.DB, kind, name string) (Resource, error) {
 }
 
 type InputSpec struct {
-	Type        string `json:"type"`
-	PipelineRef string `json:"pipelineRef"`
-	SecretRef   string `json:"secretRef"`
-	Paused      bool   `json:"paused"`
+	Type        string           `json:"type"`
+	PipelineRef string           `json:"pipelineRef"`
+	SecretRef   string           `json:"secretRef"`
+	Paused      bool             `json:"paused"`
+	GitHub      *GitHubInputSpec `json:"github,omitempty"`
+}
+
+type GitHubInputSpec struct {
+	Repository     string   `json:"repository"`
+	TokenSecretRef string   `json:"tokenSecretRef"`
+	Assignees      []string `json:"assignees,omitempty"`
+	Labels         []string `json:"labels,omitempty"`
 }
 
 type PipelineSpec struct {
