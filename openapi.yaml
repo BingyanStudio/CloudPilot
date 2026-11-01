@@ -308,6 +308,12 @@ paths:
       tags:
       - Inputs
       responses:
+        '200':
+          description: GitHub ping acknowledged or delivery ignored because its event, action, repository or issue does not match
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HookAcknowledgement'
         '202':
           description: Persisted event, or the original event for an existing idempotency key
           content:
@@ -339,11 +345,36 @@ paths:
         schema:
           type: string
           maxLength: 190
-        description: Optional key scoped to this Input. Reusing it returns the original event without requeueing.
-      description: Accepts any valid JSON value up to 1 MiB. Bearer credential is resolved from Input.spec.secretRef.
-        Paused Inputs reject events with 409; unavailable credentials return 503.
+        description: Optional key for webhook Inputs, scoped to this Input. Reusing it returns the original event
+          without requeueing. GitHub issue Inputs use repository and issue identity instead.
+      - name: X-GitHub-Event
+        in: header
+        schema:
+          type: string
+        description: GitHub event name. GitHub issue Inputs process issues deliveries and acknowledge other event
+          types, including ping, without queueing a task.
+      - name: X-GitHub-Delivery
+        in: header
+        schema:
+          type: string
+        description: Optional GitHub delivery identifier, retained in the agent context. It does not control deduplication.
+      description: |
+        Bodies are limited to 1 MiB. Authentication depends on Input.spec.type. webhook Inputs accept any valid
+        JSON value and require a Bearer credential resolved from Input.spec.secretRef. github_issue Inputs require
+        X-Hub-Signature-256, the sha256= prefixed hex HMAC of the unmodified body using that secret.
+
+        GitHub issue Inputs accept open issues from the configured repository for opened, reopened, assigned and
+        labeled actions. Any configured assignee or label match qualifies; pull requests and unmatched deliveries
+        are acknowledged without creating an event. One event is persisted per Input and repository/issue identity,
+        even when a new delivery ID is used. A duplicate returns the original event without requeueing.
+
+        Matching deliveries require server.public_url and the configured GitHub token. The event payload preserves
+        the GitHub issue and repository context and adds source: github_issue. A durable background notification
+        replies to the issue with a WebUI link to /#/events/{id}; delivery failures retry independently of execution.
+        Paused Inputs reject deliveries with 409; unavailable credentials or public URL return 503.
       security:
       - webhookBearer: []
+      - githubSignature: []
   /api/events:
     get:
       summary: List the newest 200 events
@@ -378,6 +409,32 @@ paths:
           - failed
           - cancelled
           - interrupted
+  /api/events/{id}:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    get:
+      summary: Read an event and its execution attempts
+      tags:
+      - Events
+      description: Returns the event even before its first run starts and all associated runs in descending ID
+        order. This lookup is independent of the 200-event list limit and backs the WebUI task link /#/events/{id}.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
   /api/events/{id}/retry:
     parameters:
     - $ref: '#/components/parameters/ID'
@@ -786,6 +843,12 @@ components:
       type: http
       scheme: bearer
       description: Secret from the Input secretRef environment variable.
+    githubSignature:
+      type: apiKey
+      in: header
+      name: X-Hub-Signature-256
+      description: For github_issue Inputs only. sha256= followed by the hexadecimal HMAC-SHA256 of the raw request
+        body, signed with the Input secretRef environment variable. A Bearer token is not accepted for this Input type.
   parameters:
     Kind:
       name: kind
@@ -930,6 +993,7 @@ components:
           type: string
           enum:
           - webhook
+          - github_issue
           default: webhook
         pipelineRef:
           type: string
@@ -938,7 +1002,12 @@ components:
         secretRef:
           type: string
           pattern: ^[A-Za-z_][A-Za-z0-9_]*$
-          description: Name of the server environment variable containing the webhook Bearer secret.
+          description: Name of the server environment variable containing the Bearer secret for webhook Inputs or
+            the HMAC signing secret configured in GitHub for github_issue Inputs.
+        github:
+          anyOf:
+          - $ref: '#/components/schemas/GitHubInputSpec'
+          - type: 'null'
         paused:
           type: boolean
           default: false
@@ -946,6 +1015,83 @@ components:
       - pipelineRef
       - secretRef
       additionalProperties: false
+      allOf:
+      - if:
+          properties:
+            type:
+              const: github_issue
+          required:
+          - type
+        then:
+          required:
+          - github
+          properties:
+            github:
+              type: object
+        else:
+          properties:
+            github:
+              type: 'null'
+    GitHubInputSpec:
+      type: object
+      description: GitHub.com issue source. At least one assignee or label must be configured. A match in either
+        list qualifies; names are matched case-insensitively.
+      properties:
+        repository:
+          type: string
+          pattern: '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$'
+          description: GitHub repository owner/name. Deliveries for other repositories are ignored.
+          example: your-org/your-app
+        tokenSecretRef:
+          type: string
+          pattern: ^[A-Za-z_][A-Za-z0-9_]*$
+          description: Server environment variable containing a GitHub token with repository Issues read/write
+            permission for acknowledgement comments. The token is not automatically passed to the agent.
+        assignees:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+            pattern: '^(?:\*|[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)$'
+          description: Match any listed GitHub login. A literal '*' matches any issue with at least one assignee.
+        labels:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+            minLength: 1
+            maxLength: 50
+            pattern: '^(?=.*\S)[^\r\n]+$'
+          description: Match any listed label name. Labels must be nonblank, single-line names of at most 50 characters
+            and may contain spaces.
+      required:
+      - repository
+      - tokenSecretRef
+      additionalProperties: false
+      anyOf:
+      - required:
+        - assignees
+        properties:
+          assignees:
+            type: array
+            minItems: 1
+      - required:
+        - labels
+        properties:
+          labels:
+            type: array
+            minItems: 1
+    HookAcknowledgement:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+          - ignored
+      required:
+      - status
     PipelineSpec:
       type: object
       properties:
@@ -1165,6 +1311,19 @@ components:
       - availableAt
       - createdAt
       - updatedAt
+    EventDetail:
+      type: object
+      properties:
+        event:
+          $ref: '#/components/schemas/Event'
+        runs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Run'
+          description: All execution attempts for this event, newest first. Empty while awaiting the first run.
+      required:
+      - event
+      - runs
     Run:
       type: object
       properties:

@@ -1,0 +1,18 @@
+# Apply after creating the referenced Pipeline, or change pipelineRef to an existing pipeline.
+# nightly-feedback is provided by examples/nightly-feedback.yaml.
+apiVersion: cloudpilot.dev/v1alpha1
+kind: Input
+metadata:
+  name: github-issues
+spec:
+  type: github_issue
+  pipelineRef: nightly-feedback
+  secretRef: GITHUB_ISSUES_WEBHOOK_SECRET
+  paused: false
+  github:
+    repository: your-org/your-app
+    tokenSecretRef: GITHUB_TOKEN
+    assignees:
+      - your-agent-account
+    labels:
+      - cloudpilot
