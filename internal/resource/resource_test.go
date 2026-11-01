@@ -108,6 +108,62 @@ metadata: {name: docker}
 spec: {}
 `
 
+// TestEncryptedInputCredentials protects both webhook authentication and queued GitHub credentials.
+func TestEncryptedInputCredentials(t *testing.T) {
+	db, err := model.Open("sqlite", filepath.Join(t.TempDir(), "input.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, _ := db.DB()
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	encryption, err := model.Unlock(db, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs, err := ParseYAML([]byte(testManifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs[0].Spec = json.RawMessage(`{"pipelineRef":"nightly","type":"github_issue","secret":"private-webhook-token","github":{"repository":"org/repo","token":"private-github-token","assignees":["agent"]}}`)
+	applied, err := Apply(db, docs, encryption)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func() model.InputSpec {
+		t.Helper()
+		item, err := model.FindResource(db, "Input", "feedback")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var spec model.InputSpec
+		if err := item.Decode(&spec); err != nil {
+			t.Fatal(err)
+		}
+		return spec
+	}
+	stored := read()
+	for purpose, pair := range map[string][2]string{
+		"Input": {stored.Secret, "private-webhook-token"}, "GitHub": {stored.GitHub.Token, "private-github-token"},
+	} {
+		if value, err := model.Decrypt(encryption, purpose, pair[0]); err != nil || value != pair[1] {
+			t.Fatal("input credential was not encrypted", err)
+		}
+	}
+	for _, batch := range [][]model.Document{docs, applied} {
+		exported, err := ExportYAML(batch)
+		if err != nil || strings.Contains(string(exported), "private-") || strings.Contains(string(exported), "v1:") {
+			t.Fatal("input export exposed a credential", err)
+		}
+	}
+	if _, err := Apply(db, []model.Document{applied[0]}, encryption); err != nil {
+		t.Fatal(err)
+	}
+	updated := read()
+	if updated.Secret != stored.Secret || updated.GitHub.Token != stored.GitHub.Token {
+		t.Fatal("editing a redacted input lost its credentials")
+	}
+}
+
 func TestManifestApplyRoundTripAndAtomicValidation(t *testing.T) {
 	db, err := model.Open("sqlite", filepath.Join(t.TempDir(), "cloudpilot.db"))
 	if err != nil {

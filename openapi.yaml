@@ -179,8 +179,9 @@ paths:
         metadata.generation to reject stale edits. Worker spec.apiKey and Runner spec.e2b.apiKey are write-only;
         nonempty values replace the encrypted database credential; omission or an empty string preserves an existing
         credential unless apiKeySecretRef explicitly selects a legacy environment variable. A new Worker or E2B Runner
-        requires apiKey or a legacy apiKeySecretRef. API responses never return
-        plaintext or encrypted API keys.
+        requires apiKey or a legacy apiKeySecretRef. Input spec.secret and spec.github.token follow the same rules,
+        with secretRef and github.tokenSecretRef as legacy alternatives. New Inputs require a webhook secret and
+        github_issue Inputs also require a GitHub token. API responses never return plaintext or encrypted credentials.
   /api/resources/{kind}/{name}:
     parameters:
     - $ref: '#/components/parameters/Kind'
@@ -283,7 +284,7 @@ paths:
             schema:
               $ref: '#/components/schemas/ImportRequest'
       description: Maximum 100 documents and 1 MiB YAML. Strict unknown-field validation. References can resolve
-        to objects in this batch or already stored. Absent resources are not deleted. API keys follow the same
+        to objects in this batch or already stored. Absent resources are not deleted. Credentials follow the same
         write-only encryption and preservation rules as POST /api/resources.
   /api/config/export:
     get:
@@ -303,9 +304,9 @@ paths:
           $ref: '#/components/responses/Forbidden'
         default:
           $ref: '#/components/responses/Error'
-      description: Returns an attachment named cloudpilot-resources.yaml. Omits API keys, their ciphertext and
+      description: Returns an attachment named cloudpilot-resources.yaml. Omits API keys, Input secrets, GitHub tokens, their ciphertext and
         metadata.generation; legacy environment references remain. Reimporting into the same database preserves stored
-        API keys. Importing into a new database requires supplying API keys again.
+        credentials. Importing into a new database requires supplying credential values again.
   /hooks/{name}:
     parameters:
     - $ref: '#/components/parameters/Name'
@@ -366,7 +367,7 @@ paths:
         description: Optional GitHub delivery identifier, retained in the agent context. It does not control deduplication.
       description: |
         Bodies are limited to 1 MiB. Authentication depends on Input.spec.type. webhook Inputs accept any valid
-        JSON value and require a Bearer credential resolved from Input.spec.secretRef. github_issue Inputs require
+        JSON value and require a Bearer credential decrypted from Input.spec.secret (or legacy secretRef). github_issue Inputs require
         X-Hub-Signature-256, the sha256= prefixed hex HMAC of the unmodified body using that secret.
 
         GitHub issue Inputs accept open issues from the configured repository for opened, reopened, assigned and
@@ -848,13 +849,13 @@ components:
     webhookBearer:
       type: http
       scheme: bearer
-      description: Secret from the Input secretRef environment variable.
+      description: Secret stored encrypted in Input.spec.secret, or resolved from the legacy secretRef environment variable.
     githubSignature:
       type: apiKey
       in: header
       name: X-Hub-Signature-256
       description: For github_issue Inputs only. sha256= followed by the hexadecimal HMAC-SHA256 of the raw request
-        body, signed with the Input secretRef environment variable. A Bearer token is not accepted for this Input type.
+        body, signed with the Input secret credential. A Bearer token is not accepted for this Input type.
   parameters:
     Kind:
       name: kind
@@ -1005,11 +1006,20 @@ components:
           type: string
           pattern: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$
           maxLength: 63
+        secret:
+          type: string
+          format: password
+          writeOnly: true
+          maxLength: 4096
+          description: Webhook Bearer credential or GitHub HMAC signing secret. Required on creation unless a
+            legacy secretRef is supplied. Encrypted at rest and omitted from reads and exports. Omit or send an empty
+            string on update to preserve the stored value; a nonempty value replaces it and clears secretRef.
         secretRef:
           type: string
           pattern: ^[A-Za-z_][A-Za-z0-9_]*$
-          description: Name of the server environment variable containing the Bearer secret for webhook Inputs or
-            the HMAC signing secret configured in GitHub for github_issue Inputs.
+          deprecated: true
+          description: Legacy server environment variable containing the webhook secret. Explicitly setting this
+            reference without a new secret switches back to the environment credential.
         github:
           anyOf:
           - $ref: '#/components/schemas/GitHubInputSpec'
@@ -1019,7 +1029,6 @@ components:
           default: false
       required:
       - pipelineRef
-      - secretRef
       additionalProperties: false
       allOf:
       - if:
@@ -1048,11 +1057,20 @@ components:
           pattern: '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$'
           description: GitHub repository owner/name. Deliveries for other repositories are ignored.
           example: your-org/your-app
+        token:
+          type: string
+          format: password
+          writeOnly: true
+          maxLength: 4096
+          description: GitHub token with repository Issues read/write permission, used for acknowledgement comments.
+            Required on creation unless a legacy tokenSecretRef is supplied. Encrypted at rest and omitted from reads
+            and exports. Omit or send an empty string to preserve the stored token. Not passed to the agent.
         tokenSecretRef:
           type: string
           pattern: ^[A-Za-z_][A-Za-z0-9_]*$
-          description: Server environment variable containing a GitHub token with repository Issues read/write
-            permission for acknowledgement comments. The token is not automatically passed to the agent.
+          deprecated: true
+          description: Legacy server environment variable containing the GitHub token. Explicitly setting this
+            reference without a new token switches back to the environment credential.
         assignees:
           type:
           - array
@@ -1074,7 +1092,6 @@ components:
             and may contain spaces.
       required:
       - repository
-      - tokenSecretRef
       additionalProperties: false
       anyOf:
       - required:

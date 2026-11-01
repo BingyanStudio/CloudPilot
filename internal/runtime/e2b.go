@@ -81,7 +81,7 @@ func (e *E2B) client(runner model.RunnerSpec) (*sandbox.Client, error) {
 		return nil, errors.New("E2B runner requires a database and sandbox configuration")
 	}
 	spec := runner.E2B
-	key, err := resolveAPIKey(e.Encryption, "Runner", spec.APIKey, spec.APIKeySecretRef)
+	key, err := model.ResolveSecret(e.Encryption, "Runner", spec.APIKey, spec.APIKeySecretRef)
 	if err != nil {
 		return nil, err
 	}

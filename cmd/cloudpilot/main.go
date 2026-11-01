@@ -109,7 +109,7 @@ func serve(ctx context.Context, path string) error {
 	notificationsDone := make(chan struct{})
 	go func() {
 		defer close(notificationsDone)
-		(&github.Notifier{DB: db}).Run(notificationCtx)
+		(&github.Notifier{DB: db, Encryption: encryption}).Run(notificationCtx)
 	}()
 	errorsCh := make(chan error, 2)
 	go func() { errorsCh <- server.Serve(listener) }()

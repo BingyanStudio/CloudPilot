@@ -8,6 +8,7 @@ type GitHubIssueNotification struct {
 	EventID        uint   `gorm:"uniqueIndex"`
 	Repository     string `gorm:"size:255"`
 	IssueNumber    int
+	Token          string `json:"-"`
 	TokenSecretRef string `gorm:"size:255"`
 	TaskURL        string
 	Attempts       int

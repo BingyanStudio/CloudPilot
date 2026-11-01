@@ -62,5 +62,5 @@ metadata:
 spec:
   type: webhook
   pipelineRef: novita-agent
-  secretRef: NOVITA_WEBHOOK_SECRET
+  secret: REPLACE_WITH_WEBHOOK_SECRET
   paused: false

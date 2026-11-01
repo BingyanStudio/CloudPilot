@@ -7,11 +7,11 @@ metadata:
 spec:
   type: github_issue
   pipelineRef: nightly-feedback
-  secretRef: GITHUB_ISSUES_WEBHOOK_SECRET
+  secret: REPLACE_WITH_WEBHOOK_SECRET
   paused: false
   github:
     repository: your-org/your-app
-    tokenSecretRef: GITHUB_TOKEN
+    token: REPLACE_WITH_GITHUB_TOKEN
     assignees:
       - your-agent-account
     labels:

@@ -27,16 +27,33 @@ func TestGitHubIssueInput(t *testing.T) {
 	}
 	sqlDB, _ := db.DB()
 	t.Cleanup(func() { _ = sqlDB.Close() })
+	encryption, err := model.Unlock(db, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err := model.Encrypt(encryption, "Input", "webhook-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := model.Encrypt(encryption, "GitHub", "comment-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := json.Marshal(model.InputSpec{Type: "github_issue", PipelineRef: "issues", Secret: secret,
+		GitHub: &model.GitHubInputSpec{Repository: "org/repo", Token: token, Assignees: []string{"agent-bot"}, Labels: []string{"agent-ready"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, item := range []model.Resource{
 		{Kind: "Pipeline", Name: "issues", Spec: json.RawMessage(`{}`)},
-		{Kind: "Input", Name: "github", Spec: json.RawMessage(`{"type":"github_issue","pipelineRef":"issues","secretRef":"GITHUB_WEBHOOK_SECRET","github":{"repository":"org/repo","tokenSecretRef":"GITHUB_COMMENT_TOKEN","assignees":["agent-bot"],"labels":["agent-ready"]}}`)},
+		{Kind: "Input", Name: "github", Spec: input},
 		{Kind: "Input", Name: "any-assignee", Spec: json.RawMessage(`{"type":"github_issue","pipelineRef":"issues","secretRef":"GITHUB_WEBHOOK_SECRET","github":{"repository":"org/repo","tokenSecretRef":"GITHUB_COMMENT_TOKEN","assignees":["*"]}}`)},
 	} {
 		if err := db.Create(&item).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
-	app := &controller.App{DB: db, PublicURL: "https://pilot.example.com/"}
+	app := &controller.App{DB: db, PublicURL: "https://pilot.example.com/", Encryption: encryption}
 	e := echo.New()
 	views.Register(e, app)
 	request := func(input, body, eventType, signature string, delivery ...string) *httptest.ResponseRecorder {
@@ -114,13 +131,15 @@ func TestGitHubIssueInput(t *testing.T) {
 	}
 	for _, unavailable := range []string{"public URL", "token"} {
 		t.Run(unavailable, func(t *testing.T) {
+			input := "github"
 			if unavailable == "public URL" {
 				app.PublicURL = ""
 				defer func() { app.PublicURL = "https://pilot.example.com/" }()
 			} else {
 				t.Setenv("GITHUB_COMMENT_TOKEN", "")
+				input = "any-assignee"
 			}
-			if response := request("github", body, "issues", githubSignature(body)); response.Code != 503 {
+			if response := request(input, body, "issues", githubSignature(body)); response.Code != 503 {
 				t.Fatalf("missing configuration: %d %s", response.Code, response.Body)
 			}
 		})
@@ -164,7 +183,7 @@ func TestGitHubIssueInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantURL := fmt.Sprintf("https://pilot.example.com/#/events/%d", event.ID)
-	if notification.Repository != "org/repo" || notification.IssueNumber != 123 || notification.TaskURL != wantURL || notification.TokenSecretRef != "GITHUB_COMMENT_TOKEN" {
+	if notification.Repository != "org/repo" || notification.IssueNumber != 123 || notification.TaskURL != wantURL || notification.TokenSecretRef != "" || notification.Token != token {
 		t.Fatalf("notification: %+v", notification)
 	}
 	var count int64

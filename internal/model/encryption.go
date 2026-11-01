@@ -5,6 +5,8 @@ import (
 	"crypto/cipher"
 	"encoding/base64"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 
 	"gorm.io/gorm"
@@ -13,6 +15,17 @@ import (
 type encryptionState struct {
 	ID    uint `gorm:"primaryKey"`
 	Check string
+}
+
+// ResolveSecret decrypts a stored credential or resolves a legacy environment reference.
+func ResolveSecret(encryption cipher.AEAD, purpose, encrypted, reference string) (string, error) {
+	if encrypted != "" {
+		return Decrypt(encryption, purpose, encrypted)
+	}
+	if value := os.Getenv(reference); value != "" {
+		return value, nil
+	}
+	return "", fmt.Errorf("%s credential is not configured", purpose)
 }
 
 // Unlock verifies that the supplied encryption key belongs to this database.

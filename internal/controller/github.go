@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -44,8 +43,8 @@ type githubIssuePayload struct {
 
 // githubIssue authenticates GitHub deliveries and queues each matching issue once.
 func (a *App) githubIssue(c *echo.Context, inputName string, spec model.InputSpec) error {
-	secret := os.Getenv(spec.SecretRef)
-	if secret == "" || spec.GitHub == nil {
+	secret, err := model.ResolveSecret(a.Encryption, "Input", spec.Secret, spec.SecretRef)
+	if err != nil || spec.GitHub == nil {
 		return fail(c, http.StatusServiceUnavailable, "GitHub input configuration is unavailable")
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(c.Response(), c.Request().Body, 1<<20))
@@ -71,7 +70,7 @@ func (a *App) githubIssue(c *echo.Context, inputName string, spec model.InputSpe
 	if !strings.EqualFold(payload.Repository.FullName, spec.GitHub.Repository) || !payload.matches(*spec.GitHub) {
 		return c.JSON(http.StatusOK, map[string]string{"status": "ignored"})
 	}
-	if os.Getenv(spec.GitHub.TokenSecretRef) == "" {
+	if _, err := model.ResolveSecret(a.Encryption, "GitHub", spec.GitHub.Token, spec.GitHub.TokenSecretRef); err != nil {
 		return fail(c, http.StatusServiceUnavailable, "GitHub token is unavailable")
 	}
 	if err := validatePublicURL(a.PublicURL); err != nil {
@@ -107,6 +106,7 @@ func (a *App) githubIssue(c *echo.Context, inputName string, spec model.InputSpe
 		}
 		notification := model.GitHubIssueNotification{
 			EventID: event.ID, Repository: spec.GitHub.Repository, IssueNumber: payload.Issue.Number,
+			Token:          spec.GitHub.Token,
 			TokenSecretRef: spec.GitHub.TokenSecretRef, TaskURL: strings.TrimRight(a.PublicURL, "/") + "/#/events/" + strconv.FormatUint(uint64(event.ID), 10),
 			AvailableAt: time.Now().UTC(),
 		}

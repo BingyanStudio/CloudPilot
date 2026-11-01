@@ -263,8 +263,8 @@ func (a *App) Webhook(c *echo.Context) error {
 	if spec.Type == "github_issue" {
 		return a.githubIssue(c, item.Name, spec)
 	}
-	secret := os.Getenv(spec.SecretRef)
-	if secret == "" {
+	secret, err := model.ResolveSecret(a.Encryption, "Input", spec.Secret, spec.SecretRef)
+	if err != nil {
 		return fail(c, http.StatusServiceUnavailable, "input secret is unavailable")
 	}
 	header := c.Request().Header.Get("Authorization")

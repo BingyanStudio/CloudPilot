@@ -34,13 +34,17 @@ type Resource struct {
 // Document returns a public resource without stored API credentials.
 func (r Resource) Document() Document {
 	doc := Document{APIVersion: APIVersion, Kind: r.Kind, Metadata: Metadata{Name: r.Name, Generation: r.Generation}, Spec: r.Spec}
-	if r.Kind == "Worker" || r.Kind == "Runner" {
+	if r.Kind == "Worker" || r.Kind == "Runner" || r.Kind == "Input" {
 		var spec map[string]any
 		if err := json.Unmarshal(r.Spec, &spec); err != nil {
 			doc.Spec = json.RawMessage(`{}`)
 			return doc
 		}
 		delete(spec, "apiKey")
+		delete(spec, "secret")
+		if github, ok := spec["github"].(map[string]any); ok {
+			delete(github, "token")
+		}
 		if e2b, ok := spec["e2b"].(map[string]any); ok {
 			delete(e2b, "apiKey")
 		}
@@ -60,14 +64,16 @@ func FindResource(db *gorm.DB, kind, name string) (Resource, error) {
 type InputSpec struct {
 	Type        string           `json:"type"`
 	PipelineRef string           `json:"pipelineRef"`
-	SecretRef   string           `json:"secretRef"`
+	Secret      string           `json:"secret,omitempty"`
+	SecretRef   string           `json:"secretRef,omitempty"`
 	Paused      bool             `json:"paused"`
 	GitHub      *GitHubInputSpec `json:"github,omitempty"`
 }
 
 type GitHubInputSpec struct {
 	Repository     string   `json:"repository"`
-	TokenSecretRef string   `json:"tokenSecretRef"`
+	Token          string   `json:"token,omitempty"`
+	TokenSecretRef string   `json:"tokenSecretRef,omitempty"`
 	Assignees      []string `json:"assignees,omitempty"`
 	Labels         []string `json:"labels,omitempty"`
 }

@@ -3,6 +3,7 @@ package github
 import (
 	"bytes"
 	"context"
+	"crypto/cipher"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -11,7 +12,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +24,7 @@ import (
 type Notifier struct {
 	DB           *gorm.DB
 	Client       *http.Client
+	Encryption   cipher.AEAD
 	PollInterval time.Duration
 	mu           sync.Mutex
 }
@@ -83,8 +84,8 @@ func (n *Notifier) DeliverPending(ctx context.Context) error {
 }
 
 func (n *Notifier) deliver(ctx context.Context, notification model.GitHubIssueNotification) error {
-	token := os.Getenv(notification.TokenSecretRef)
-	if token == "" {
+	token, err := model.ResolveSecret(n.Encryption, "GitHub", notification.Token, notification.TokenSecretRef)
+	if err != nil {
 		return errors.New("GitHub token is unavailable")
 	}
 	parts := strings.Split(notification.Repository, "/")

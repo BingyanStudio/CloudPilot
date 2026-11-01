@@ -24,7 +24,7 @@ flowchart LR
 
 | Kind | 核心配置 |
 | --- | --- |
-| `Input` | `type: webhook`、`pipelineRef`、`secretRef`、`paused` |
+| `Input` | `type: webhook`、`pipelineRef`、`secret`、`paused` |
 | `Pipeline` | `workerRef`、`workspaceRef`、`runnerRef`、`schedule`、`timezone`、`concurrency`、`paused`、`maxRetries`、`timeoutSeconds` |
 | `Worker` | `type: codex`、`model`、`endpoint`、`apiKeySecretRef`、`instructions` |
 | `Workspace` | `repositories`、`prompt`、`tools`、`mcpServers`、`env`、`secretEnv` |
@@ -32,11 +32,11 @@ flowchart LR
 
 ## 从反馈到执行
 
-修改 [夜间反馈示例](../examples/nightly-feedback.yaml) 的仓库地址和可用模型，通过管理界面导入。将 `FEEDBACK_WEBHOOK_SECRET`、`OPENAI_API_KEY` 和 `GITHUB_TOKEN` 配置在 CloudPilot 服务环境中。该示例显式引用 GitHub token，用于仓库认证和 issue、PR 操作；若只分析公开仓库，可删除 Workspace 的 `secretEnv` 映射。不删除该映射时，缺少 GitHub token 会使运行失败。
+修改 [夜间反馈示例](../examples/nightly-feedback.yaml) 的仓库地址和可用模型，填写 Worker 的 `apiKey` 与 Input 的 `secret` 后，通过管理界面导入。将 Workspace 引用的 `GITHUB_TOKEN` 配置在 CloudPilot 服务环境中，用于仓库认证和 issue、PR 操作；若只分析公开仓库，可删除 Workspace 的 `secretEnv` 映射。不删除该映射时，缺少 GitHub token 会使运行失败。
 
 远程 sandbox 可从 [Novita 示例](../examples/novita.yaml) 开始，模板构建和 Runner 配置见 [E2B / Novita runner](2026-11-01-e2b-runner.md)。
 
-`secretRef`、`apiKeySecretRef` 和 `secretEnv` 的值都是服务进程环境变量的名字；YAML 导出保留引用，不解析或返回密钥值。
+接入点的 `secret`、`github.token` 与 API key 均加密保存，读取和导出不回显；编辑留空保留已有值。旧 `secretRef`、`tokenSecretRef`、`apiKeySecretRef` 及 `secretEnv` 继续支持服务进程环境变量引用，导出保留引用名称。
 
 应用后端调用：
 
@@ -60,7 +60,7 @@ Webhook 接受最多 1 MiB 的任意有效 JSON，认证成功后持久化为 Ev
 
 Runner 在独立容器或 sandbox 的 `/workspace` 下检出仓库。仓库条目包含 `url`、可选 `ref`、相对 `path`；路径不得越界或相互覆盖。`tools` 是按顺序执行的 shell setup 命令，可用于准备构建工具或项目依赖。交互式会话只在首次准备工作目录时检出仓库和执行 setup，后续轮次继承已有文件修改。预装大型依赖时，可基于 [deploy/worker](../deploy/worker) 构建 Docker 镜像，或使用 [deploy/sandbox](../deploy/sandbox) 的 SDK 脚本构建 Novita 模板。
 
-`env` 配置非敏感环境变量；`secretEnv` 将执行环境内变量名映射为服务环境中的密钥变量名，例如 `GH_TOKEN: GITHUB_TOKEN`。`mcpServers` 每项配置 `command` 或 HTTP(S) `url` 其中之一；stdio 服务还可设置 `args`、`env`。通过 `secretEnv` 向 MCP 子进程传递所需凭据，避免将密钥明文写入资源。
+`env` 配置非敏感环境变量；`secretEnv` 将执行环境内变量名映射为服务环境中的密钥变量名，例如 `GH_TOKEN: GITHUB_TOKEN`。网页中两者均以可增删的键值行编辑，会校验变量名并拒绝重复；YAML 中仍使用映射对象。`mcpServers` 每项配置 `command` 或 HTTP(S) `url` 其中之一；stdio 服务还可设置 `args`、`env`。通过 `secretEnv` 向 MCP 子进程传递所需凭据，避免将密钥明文写入资源。
 
 仓库提供的执行镜像和 sandbox 模板均包含 Git、GitHub CLI 和 Codex。提供 `GH_TOKEN` 或 `GITHUB_TOKEN` 时，GitHub HTTPS 克隆通过限定于 `github.com` 的凭据 helper 认证；私有仓库、issue 和 PR 操作需要该 token 对目标仓库具有对应权限。
 

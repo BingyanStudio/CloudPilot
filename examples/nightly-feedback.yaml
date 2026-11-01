@@ -65,5 +65,5 @@ metadata:
 spec:
   type: webhook
   pipelineRef: nightly-feedback
-  secretRef: FEEDBACK_WEBHOOK_SECRET
+  secret: REPLACE_WITH_WEBHOOK_SECRET
   paused: false

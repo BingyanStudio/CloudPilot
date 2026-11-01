@@ -6,11 +6,11 @@
 
 1. 创建或选择已有的 Pipeline，并确认其 Workspace 检出需要修改的仓库。`examples/nightly-feedback.yaml` 提供一组完整资源；该示例按计划执行，如需立即执行，将 Pipeline 的 `schedule` 留空。
 2. 设置 `server.public_url` 或环境变量 `CLOUDPILOT_SERVER_PUBLIC_URL`，例如 `https://cloudpilot.example.com`。地址必须是用户可访问的绝对 HTTP(S) URL，不含账号密码、查询参数或 fragment。
-3. 在服务端环境中设置 `GITHUB_ISSUES_WEBHOOK_SECRET` 和 `GITHUB_TOKEN`。前者是自选的随机 webhook 签名密钥；后者用于读取和回复 issue，可使用具有该仓库 **Issues: Read and write** 权限的 fine-grained PAT，或具有相同权限的 GitHub App installation token。使用短期 token 时由部署方负责更新。
-4. 在接入点表单中选择 GitHub issue，或导入 [`examples/github-issues.yaml`](../examples/github-issues.yaml)。替换 `repository`、`pipelineRef`、assignee 和 label；资源保存的是环境变量名称，不是密钥值。
-5. 在 GitHub 仓库的 Settings → Webhooks 添加 webhook：Payload URL 为 `https://cloudpilot.example.com/hooks/github-issues`，Content type 为 `application/json`，Secret 与 `GITHUB_ISSUES_WEBHOOK_SECRET` 相同，选择 **Issues** 事件并启用。
+3. 准备随机 Webhook 验证密钥和 GitHub Token。后者用于读取和回复 issue，可使用具有该仓库 **Issues: Read and write** 权限的 fine-grained PAT，或具有相同权限的 GitHub App installation token。使用短期 token 时由部署方负责更新。
+4. 在接入点表单中选择 GitHub issue，直接填写 Webhook 验证密钥和 GitHub Token，或在 [`examples/github-issues.yaml`](../examples/github-issues.yaml) 中填写 `secret`、`github.token` 后导入。替换 `repository`、`pipelineRef`、assignee 和 label；凭据使用启动主密钥加密保存，读取和导出不会回显，编辑时留空保留已有值。
+5. 在 GitHub 仓库的 Settings → Webhooks 添加 webhook：Payload URL 为 `https://cloudpilot.example.com/hooks/github-issues`，Content type 为 `application/json`，Secret 与表单中填写的 Webhook 验证密钥相同，选择 **Issues** 事件并启用。
 
-使用 Docker Compose 时，示例 `.env` 包含上述变量，Compose 会将它们传入服务容器。修改环境变量后需重新创建服务容器。
+保存新凭据不需要修改服务环境变量或重启容器。旧 `secretRef` 和 `github.tokenSecretRef` 引用继续兼容；输入直接凭据后会替换对应引用。后台评论记录保留当时的加密 Token，服务重启后仍能重试。
 
 ## 触发规则
 
@@ -47,7 +47,7 @@ GitHub 暂时不可用、权限不足或限流导致评论失败时，待发送�
 
 批处理和交互式 Agent 都会获得这些上下文，以及在修复 PR 中使用 `Closes owner/repo#number` 关联原 issue 的提示。issue 正文作为任务内容处理，Worker 和 Workspace 配置继续提供执行指令。
 
-用于评论的 `github.tokenSecretRef` 不会自动成为 Agent 的 GitHub 凭据。若 Agent 需要推送分支或创建 PR，请通过 Workspace 的 `secretEnv` 显式提供所需凭据，并按任务配置仓库 Contents、Pull requests 等权限，例如：
+用于评论的 `github.token` 不会自动成为 Agent 的 GitHub 凭据。若 Agent 需要推送分支或创建 PR，请通过 Workspace 的 `secretEnv` 显式提供所需凭据，并按任务配置仓库 Contents、Pull requests 等权限，例如：
 
 ```yaml
 secretEnv:

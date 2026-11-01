@@ -206,8 +206,8 @@ func validateGitHubInput(s *model.GitHubInputSpec) error {
 	if !ok || !githubOwnerPattern.MatchString(owner) || !githubRepoPattern.MatchString(repo) || repo == "." || repo == ".." {
 		return errors.New("github.repository must be an owner/repo name")
 	}
-	if !envPattern.MatchString(s.TokenSecretRef) {
-		return errors.New("github.tokenSecretRef must name an environment variable")
+	if s.Token == "" && !envPattern.MatchString(s.TokenSecretRef) {
+		return errors.New("github.token is required; tokenSecretRef may reference a legacy environment variable")
 	}
 	if len(s.Assignees)+len(s.Labels) == 0 {
 		return errors.New("github.assignees or github.labels must contain at least one trigger filter")
@@ -260,10 +260,39 @@ func normalize(doc, previous model.Document, encryption cipher.AEAD) (model.Docu
 		if s.Type != "webhook" && s.Type != "github_issue" {
 			return doc, errors.New("input type must be webhook or github_issue")
 		}
-		if !namePattern.MatchString(s.PipelineRef) || !envPattern.MatchString(s.SecretRef) {
-			return doc, errors.New("pipelineRef and secretRef (environment variable name) are required")
+		if !namePattern.MatchString(s.PipelineRef) {
+			return doc, errors.New("pipelineRef is required")
+		}
+		var old model.InputSpec
+		if len(previous.Spec) > 0 {
+			if err := json.Unmarshal(previous.Spec, &old); err != nil {
+				return doc, err
+			}
+		}
+		var err error
+		s.Secret, err = sealCredential(encryption, "Input", s.Secret, s.SecretRef, old.Secret)
+		if err != nil {
+			return doc, err
+		}
+		if s.Secret != "" {
+			s.SecretRef = ""
+		} else if !envPattern.MatchString(s.SecretRef) {
+			return doc, errors.New("secret is required; secretRef may reference a legacy environment variable")
 		}
 		if s.Type == "github_issue" {
+			if s.GitHub != nil {
+				var previousToken string
+				if old.GitHub != nil {
+					previousToken = old.GitHub.Token
+				}
+				s.GitHub.Token, err = sealCredential(encryption, "GitHub", s.GitHub.Token, s.GitHub.TokenSecretRef, previousToken)
+				if err != nil {
+					return doc, err
+				}
+				if s.GitHub.Token != "" {
+					s.GitHub.TokenSecretRef = ""
+				}
+			}
 			if err := validateGitHubInput(s.GitHub); err != nil {
 				return doc, err
 			}
@@ -330,7 +359,7 @@ func normalize(doc, previous model.Document, encryption cipher.AEAD) (model.Docu
 			}
 		}
 		var err error
-		s.APIKey, err = sealAPIKey(encryption, doc.Kind, s.APIKey, s.APIKeySecretRef, old.APIKey)
+		s.APIKey, err = sealCredential(encryption, doc.Kind, s.APIKey, s.APIKeySecretRef, old.APIKey)
 		if err != nil {
 			return doc, err
 		}
@@ -437,7 +466,7 @@ func normalize(doc, previous model.Document, encryption cipher.AEAD) (model.Docu
 					previousKey = old.E2B.APIKey
 				}
 				var err error
-				s.E2B.APIKey, err = sealAPIKey(encryption, doc.Kind, s.E2B.APIKey, s.E2B.APIKeySecretRef, previousKey)
+				s.E2B.APIKey, err = sealCredential(encryption, doc.Kind, s.E2B.APIKey, s.E2B.APIKeySecretRef, previousKey)
 				if err != nil {
 					return doc, err
 				}
@@ -512,8 +541,8 @@ func normalizeE2B(s *model.E2BRunnerSpec) error {
 	return nil
 }
 
-// sealAPIKey encrypts a replacement or preserves the stored credential on an ordinary edit.
-func sealAPIKey(encryption cipher.AEAD, purpose, value, reference, previous string) (string, error) {
+// sealCredential encrypts a replacement or preserves the stored credential on an ordinary edit.
+func sealCredential(encryption cipher.AEAD, purpose, value, reference, previous string) (string, error) {
 	if value == "" {
 		if reference != "" {
 			return "", nil
@@ -521,7 +550,7 @@ func sealAPIKey(encryption cipher.AEAD, purpose, value, reference, previous stri
 		return previous, nil
 	}
 	if strings.TrimSpace(value) == "" || len(value) > 4096 || strings.ContainsAny(value, "\r\n\x00") {
-		return "", errors.New("apiKey must contain 1–4096 bytes without newlines or NUL")
+		return "", errors.New("credential must contain 1–4096 bytes without newlines or NUL")
 	}
 	return model.Encrypt(encryption, purpose, value)
 }

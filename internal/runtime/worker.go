@@ -73,7 +73,7 @@ type Codex struct{}
 
 // Prepare resolves the worker credential and generates an isolated Codex bootstrap.
 func (Codex) Prepare(task engine.Task) (PreparedWorker, error) {
-	value, err := resolveAPIKey(task.Encryption, "Worker", task.Worker.APIKey, task.Worker.APIKeySecretRef)
+	value, err := model.ResolveSecret(task.Encryption, "Worker", task.Worker.APIKey, task.Worker.APIKeySecretRef)
 	if err != nil {
 		return PreparedWorker{}, err
 	}

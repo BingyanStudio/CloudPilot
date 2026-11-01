@@ -24,7 +24,7 @@
 
 前端内嵌在二进制中。升级时删除旧配置中的 `server.frontend_dir`，否则严格配置校验会拒绝启动。
 
-GitHub issue 接入需要将 `server.public_url` 或 `CLOUDPILOT_SERVER_PUBLIC_URL` 设为用户可访问的 HTTP(S) WebUI 基址，不含账号密码、查询参数或 fragment，例如 `https://cloudpilot.example.com`。Webhook 签名密钥和用于回复 issue 的 GitHub token 通过资源中的环境变量引用提供，配置步骤见 [GitHub issue 接入](2026-11-01-github-issue-input.md)。
+GitHub issue 接入需要将 `server.public_url` 或 `CLOUDPILOT_SERVER_PUBLIC_URL` 设为用户可访问的 HTTP(S) WebUI 基址，不含账号密码、查询参数或 fragment，例如 `https://cloudpilot.example.com`。Webhook 验证密钥和用于回复 issue 的 GitHub Token 在接入点表单中直接填写、加密保存，配置步骤见 [GitHub issue 接入](2026-11-01-github-issue-input.md)。
 
 数据库在启动时执行 GORM 自动迁移。其他数据库的 DSN 示例：
 
@@ -45,14 +45,14 @@ MySQL 使用 `user:password@tcp(host:3306)/cloudpilot?charset=utf8mb4&parseTime=
 ```sh
 cp config.example.yaml config.yaml
 cp examples/docker.env.example .env
-# 编辑 .env，设置主加密密钥、管理员密码、Webhook secret 和示例所需的 GitHub token。
+# 编辑 .env，设置主加密密钥、管理员密码和 Workspace 示例所需的 GitHub token。
 make worker-image
 docker compose up --build -d
 ```
 
 管理界面位于 <http://localhost:8080>。Compose 默认只向本机暴露 8080 和 9090；Metrics 使用独立端口 <http://localhost:9090/metrics>。数据库和文件产物持久化在 `cloudpilot-data` 卷。配置文件通过只读挂载提供；修改后重启服务。
 
-模型和沙箱 API key 在 Worker、Runner 编辑页直接填写，保存后无需重启。旧的 `apiKeySecretRef` 环境变量引用继续兼容；填写直接 API key 后会替换该引用。
+模型和沙箱 API key 在 Worker、Runner 编辑页直接填写；Webhook 验证密钥和 GitHub Token 在接入点编辑页直接填写。凭据加密保存，读取和导出不回显，保存后无需重启。旧环境变量引用继续兼容；填写直接凭据后会替换对应引用。
 
 Compose 默认挂载 Docker socket，Docker runner 使用 Docker CLI 和 `/var/run/docker.sock` 创建执行容器。执行容器使用 `docker cp` 接收工作配置、返回产物，无需映射服务容器内部的主机路径，也不挂载 Docker socket。自定义 `DOCKER_HOST` 时应确保服务能访问对应 daemon；运行镜像必须存在于该 daemon 或可从镜像仓库拉取。
 

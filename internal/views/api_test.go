@@ -100,7 +100,7 @@ spec: {workerRef: codex, workspaceRef: app, runnerRef: docker, schedule: "0 20 *
 apiVersion: cloudpilot.dev/v1alpha1
 kind: Input
 metadata: {name: feedback}
-spec: {pipelineRef: nightly, secretRef: FEEDBACK_TOKEN}
+spec: {pipelineRef: nightly, secret: private-webhook-token}
 `
 	encoded, _ := json.Marshal(map[string]string{"yaml": manifest})
 	response := request("POST", "/api/config/import", string(encoded), cookie, nil)
@@ -114,7 +114,7 @@ spec: {pipelineRef: nightly, secretRef: FEEDBACK_TOKEN}
 	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "private-sandbox-key") || strings.Contains(response.Body.String(), "v1:") {
 		t.Fatalf("sandbox credential save failed or exposed a secret: %d", response.Code)
 	}
-	for _, path := range []string{"/api/resources", "/api/resources/Worker/codex", "/api/resources/Runner/sandbox"} {
+	for _, path := range []string{"/api/resources", "/api/resources/Worker/codex", "/api/resources/Runner/sandbox", "/api/resources/Input/feedback"} {
 		response := request("GET", path, "", cookie, nil)
 		if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "private-") || strings.Contains(response.Body.String(), "v1:") {
 			t.Fatalf("resource read failed or exposed a credential: %s, %d", path, response.Code)
@@ -123,7 +123,6 @@ spec: {pipelineRef: nightly, secretRef: FEEDBACK_TOKEN}
 	if got := request("DELETE", "/api/resources/Worker/codex", "", cookie, nil).Code; got != 409 {
 		t.Fatalf("referenced delete status %d", got)
 	}
-	t.Setenv("FEEDBACK_TOKEN", "private-webhook-token")
 	if got := request("POST", "/hooks/feedback", `{"feedback":"crash"}`, nil, nil).Code; got != 401 {
 		t.Fatalf("unsigned webhook status %d", got)
 	}

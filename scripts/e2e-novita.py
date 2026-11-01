@@ -137,8 +137,7 @@ class Check:
                   "scheduler": {"poll_interval": "500ms"}, "metrics": {"address": ""}}
         self.save("config.yaml", config)  # JSON is also valid YAML.
         env = {key: value for key, value in os.environ.items() if not key.startswith("CLOUDPILOT_")}
-        env.update(CLOUDPILOT_ADMIN_PASSWORD=self.password, CLOUDPILOT_ENCRYPTION_KEY=self.encryption_key,
-                   E2E_WEBHOOK_SECRET=self.webhook)
+        env.update(CLOUDPILOT_ADMIN_PASSWORD=self.password, CLOUDPILOT_ENCRYPTION_KEY=self.encryption_key)
         if self.args.no_pr:
             env.pop("GH_TOKEN", None)
             env.pop("GITHUB_TOKEN", None)
@@ -208,7 +207,7 @@ Use the provided GH_TOKEN without printing it or writing it into files.
              "runnerRef": "e2e-runner", "schedule": "", "timezone": "Asia/Shanghai", "concurrency": 1,
              "paused": False, "maxRetries": 0, "timeoutSeconds": 600}),
             ("Input", "e2e-feedback", {"type": "webhook", "pipelineRef": "e2e-pipeline",
-             "secretRef": "E2E_WEBHOOK_SECRET", "paused": False}),
+             "secret": self.webhook, "paused": False}),
         ]
         documents = [{"apiVersion": "cloudpilot.dev/v1alpha1", "kind": kind, "metadata": {"name": name}, "spec": spec}
                      for kind, name, spec in specs]

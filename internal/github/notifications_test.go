@@ -21,16 +21,23 @@ func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) 
 }
 
 func TestNotificationDeliveryRetryAndRecovery(t *testing.T) {
-	t.Setenv("GITHUB_NOTIFICATION_TOKEN", "notification-secret")
 	db, err := model.Open("sqlite", filepath.Join(t.TempDir(), "notifications.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	sqlDB, _ := db.DB()
 	t.Cleanup(func() { _ = sqlDB.Close() })
+	encryption, err := model.Unlock(db, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := model.Encrypt(encryption, "GitHub", "notification-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
 	notification := model.GitHubIssueNotification{
 		EventID: 12, Repository: "org/project", IssueNumber: 42,
-		TokenSecretRef: "GITHUB_NOTIFICATION_TOKEN", TaskURL: "https://pilot.example/#/events/12",
+		Token: token, TaskURL: "https://pilot.example/#/events/12",
 		AvailableAt: time.Now().UTC().Add(-time.Second),
 	}
 	if err := db.Create(&notification).Error; err != nil {
@@ -38,7 +45,7 @@ func TestNotificationDeliveryRetryAndRecovery(t *testing.T) {
 	}
 	posts, gets := 0, 0
 	postedBody, recovered := "", false
-	notifier := &Notifier{DB: db, Client: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	notifier := &Notifier{DB: db, Encryption: encryption, Client: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.URL.Scheme != "https" || req.URL.Host != "api.github.com" || req.URL.Path != "/repos/org/project/issues/42/comments" {
 			t.Fatalf("unexpected GitHub request: %s", req.URL)
 		}
@@ -114,7 +121,11 @@ func TestNotificationDeliveryRetryAndRecovery(t *testing.T) {
 	if err := db.Model(&notification).Updates(map[string]any{"delivered_at": nil, "available_at": time.Now().UTC().Add(-time.Second)}).Error; err != nil {
 		t.Fatal(err)
 	}
-	notifier = &Notifier{DB: db, Client: notifier.Client}
+	encryption, err = model.Unlock(db, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	notifier = &Notifier{DB: db, Encryption: encryption, Client: notifier.Client}
 	if err := notifier.DeliverPending(ctx); err != nil || posts != 2 || gets != 4 {
 		t.Fatalf("comment reconciliation failed: posts=%d gets=%d err=%v", posts, gets, err)
 	}
