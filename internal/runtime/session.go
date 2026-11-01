@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -150,21 +151,7 @@ func (d *Docker) ExecuteTurn(ctx context.Context, task engine.Task, session mode
 	if ctx.Err() != nil {
 		return result, ctx.Err()
 	}
-	text := turn.Input
-	if session.ThreadID == "" {
-		var formatted strings.Builder
-		var event any
-		if json.Unmarshal(task.Event.Payload, &event) == nil {
-			body, _ := json.MarshalIndent(event, "", "  ")
-			formatted.Write(body)
-		} else {
-			formatted.Write(task.Event.Payload)
-		}
-		text = "Feedback event JSON follows:\n" + formatted.String()
-		if !turn.Initial && strings.TrimSpace(turn.Input) != "" {
-			text += "\n\nAdditional instructions from the operator:\n" + turn.Input
-		}
-	}
+	text := turnInput(task.Event.Payload, session, turn)
 	userInput := func(text string) []map[string]string { return []map[string]string{{"type": "text", "text": text}} }
 	var startedTurn struct {
 		Turn struct {
@@ -280,6 +267,22 @@ func (d *Docker) CloseSession(ctx context.Context, task engine.Task, session mod
 		}
 	}
 	return nil
+}
+
+// turnInput includes the original event when starting a conversation and preserves follow-up messages.
+func turnInput(payload json.RawMessage, session model.AgentSession, turn model.AgentTurn) string {
+	if session.ThreadID != "" {
+		return turn.Input
+	}
+	var formatted bytes.Buffer
+	if err := json.Indent(&formatted, payload, "", "  "); err != nil {
+		formatted.Write(payload)
+	}
+	text := "Feedback event JSON follows:\n" + formatted.String()
+	if !turn.Initial && strings.TrimSpace(turn.Input) != "" {
+		text += "\n\nAdditional instructions from the operator:\n" + turn.Input
+	}
+	return text
 }
 
 func (d *Docker) sessionContainer(ctx context.Context, task engine.Task, prepared PreparedWorker, environment, volume, instance string) (string, func() error, error) {
