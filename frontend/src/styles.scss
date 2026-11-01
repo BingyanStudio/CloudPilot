@@ -736,6 +736,9 @@ pre {
 .repository-row .cds--btn {
   margin-bottom: 4px;
 }
+.repository-row.environment-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
+}
 .editor-footer {
   border-top: 1px solid #e0e0e0;
   padding: 20px 30px;
@@ -1745,6 +1748,9 @@ pre {
   }
   .repository-row > .cds--form-item:first-child {
     grid-column: 1/-1;
+  }
+  .repository-row.environment-row {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
   .login-flow {
     gap: 8px;

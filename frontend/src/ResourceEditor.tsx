@@ -20,6 +20,7 @@ import { parseDocument, stringify } from 'yaml';
 import { message, request, resourcePath } from './api';
 import { ErrorNotice, PageHeading } from './components';
 import { navigate } from './hooks';
+import { environmentValues, type EnvironmentRow } from './environment';
 import { kindLabels, runnerSpec, type GitHubInput, type Kind, type Resource, type Spec } from './types';
 
 function assertFormShape(value: Resource) {
@@ -31,6 +32,7 @@ function assertFormShape(value: Resource) {
   const stringKeys = [
     'type',
     'pipelineRef',
+    'secret',
     'secretRef',
     'workerRef',
     'workspaceRef',
@@ -66,7 +68,7 @@ function assertFormShape(value: Resource) {
     throw new Error('spec.paused 必须是布尔值。');
   if (spec.github !== undefined) {
     if (!object(spec.github)) throw new Error('spec.github 必须是 GitHub 配置对象。');
-    for (const key of ['repository', 'tokenSecretRef'])
+    for (const key of ['repository', 'token', 'tokenSecretRef'])
       if (spec.github[key] !== undefined && typeof spec.github[key] !== 'string')
         throw new Error(`spec.github.${key} 必须是字符串。`);
     for (const key of ['assignees', 'labels']) {
@@ -79,12 +81,12 @@ function assertFormShape(value: Resource) {
     }
   }
   if (
-    spec.tools !== undefined &&
+    spec.tools != null &&
     (!Array.isArray(spec.tools) || spec.tools.some((item) => typeof item !== 'string'))
   )
     throw new Error('spec.tools 必须是字符串数组。');
   if (
-    spec.repositories !== undefined &&
+    spec.repositories != null &&
     (!Array.isArray(spec.repositories) ||
       spec.repositories.some(
         (item) =>
@@ -97,12 +99,12 @@ function assertFormShape(value: Resource) {
     throw new Error('spec.repositories 必须是包含 url、ref、path 的对象数组。');
   for (const key of ['env', 'secretEnv'])
     if (
-      spec[key] !== undefined &&
+      spec[key] != null &&
       (!object(spec[key]) || Object.values(spec[key]).some((item) => typeof item !== 'string'))
     )
       throw new Error(`spec.${key} 必须是字符串键值对象。`);
   if (
-    spec.mcpServers !== undefined &&
+    spec.mcpServers != null &&
     (!object(spec.mcpServers) || Object.values(spec.mcpServers).some((item) => !object(item)))
   )
     throw new Error('spec.mcpServers 必须是 MCP 配置对象。');
@@ -131,14 +133,15 @@ export default function ResourceEditor({
   const [tab, setTab] = useState(0);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [jsonFields, setJSONFields] = useState<Record<string, string>>(() =>
-    Object.fromEntries(
-      ['mcpServers', 'env', 'secretEnv'].map((key) => [
-        key,
-        JSON.stringify(initial.spec[key] || {}, null, 2),
-      ]),
-    ),
+  const [mcpServersJSON, setMCPServersJSON] = useState(
+    JSON.stringify(initial.spec.mcpServers || {}, null, 2),
   );
+  const [environmentRows, setEnvironmentRows] = useState<
+    Record<'env' | 'secretEnv', EnvironmentRow[]>
+  >({
+    env: Object.entries((initial.spec.env ?? {}) as Record<string, string>),
+    secretEnv: Object.entries((initial.spec.secretEnv ?? {}) as Record<string, string>),
+  });
   const spec = doc.spec;
   const e2b = (spec.e2b ?? {}) as Spec;
   const github = (spec.github || {}) as Partial<GitHubInput>;
@@ -154,7 +157,7 @@ export default function ResourceEditor({
     setDoc((current) => {
       const next: Spec = { ...current.spec, type };
       if (type === 'github_issue')
-        next.github = { repository: '', tokenSecretRef: 'GITHUB_TOKEN', assignees: [], labels: [] };
+        next.github = { repository: '', token: '', assignees: [], labels: [] };
       else delete next.github;
       return { ...current, spec: next };
     });
@@ -243,18 +246,37 @@ export default function ResourceEditor({
       onToggle={(value) => set('paused', value)}
     />
   );
-  const objectField = (key: string, label: string, helper: string) => (
-    <TextArea
-      key={key}
-      className="code-input"
-      id={`resource-${key}`}
-      labelText={label}
-      value={jsonFields[key]}
-      rows={5}
-      onChange={(event) => setJSONFields((current) => ({ ...current, [key]: event.target.value }))}
-      helperText={helper}
-    />
-  );
+  const environmentFields = (key: 'env' | 'secretEnv', label: string, helper: string) => {
+    const rows = environmentRows[key];
+    const update = (rows: EnvironmentRow[]) =>
+      setEnvironmentRows((current) => ({ ...current, [key]: rows }));
+    return (
+      <div className="full-width repository-list">
+        <div className="section-line">
+          <h4>{label}</h4>
+          <Button kind="ghost" size="sm" renderIcon={Add} aria-label={`添加${label}`}
+            onClick={() => update([...rows, ['', '']])}>
+            添加变量
+          </Button>
+        </div>
+        <p className="muted">{helper}</p>
+        {rows.map(([name, value], index) => (
+          <div className="repository-row environment-row" key={index}>
+            <TextInput id={`resource-${key}-${index}-name`} labelText="变量名" value={name}
+              onChange={(event) => update(rows.map((row, i): EnvironmentRow =>
+                i === index ? [event.target.value, row[1]] : row))} />
+            <TextInput id={`resource-${key}-${index}-value`}
+              labelText={key === 'secretEnv' ? '服务器密钥变量名' : '值'} value={value}
+              onChange={(event) => update(rows.map((row, i): EnvironmentRow =>
+                i === index ? [row[0], event.target.value] : row))} />
+            <Button kind="danger--ghost" size="sm" hasIconOnly
+              iconDescription={`移除${label} ${index + 1}`} renderIcon={TrashCan}
+              onClick={() => update(rows.filter((_, i) => i !== index))} />
+          </div>
+        ))}
+      </div>
+    );
+  };
   const fromForm = (): Resource => {
     if (doc.kind === 'Input' && spec.type === 'github_issue') {
       const normalized = {
@@ -266,7 +288,9 @@ export default function ResourceEditor({
     }
     if (doc.kind !== 'Workspace') return doc;
     const next: Spec = { ...doc.spec };
-    for (const key of ['mcpServers', 'env', 'secretEnv']) next[key] = jsonObject(jsonFields[key]);
+    next.mcpServers = jsonObject(mcpServersJSON);
+    next.env = environmentValues(environmentRows.env);
+    next.secretEnv = environmentValues(environmentRows.secretEnv);
     return { ...doc, spec: next };
   };
   const parseYAML = (): Resource => {
@@ -294,14 +318,11 @@ export default function ResourceEditor({
       else {
         const next = parseYAML();
         setDoc(next);
-        setJSONFields(
-          Object.fromEntries(
-            ['mcpServers', 'env', 'secretEnv'].map((key) => [
-              key,
-              JSON.stringify(next.spec[key] || {}, null, 2),
-            ]),
-          ),
-        );
+        setMCPServersJSON(JSON.stringify(next.spec.mcpServers || {}, null, 2));
+        setEnvironmentRows({
+          env: Object.entries((next.spec.env ?? {}) as Record<string, string>),
+          secretEnv: Object.entries((next.spec.secretEnv ?? {}) as Record<string, string>),
+        });
       }
       setError('');
       setTab(selected);
@@ -417,13 +438,16 @@ export default function ResourceEditor({
                           <SelectItem value="github_issue" text="GitHub issue" />
                         </Select>
                         {reference('pipelineRef', 'Pipeline')}
-                        {field(
-                          'secretRef',
-                          'Webhook 密钥环境变量',
-                          spec.type === 'github_issue'
-                            ? '填写保存 GitHub Webhook Secret 的服务器环境变量名称，用于校验签名。'
-                            : '填写服务器环境变量名称，不要填写密钥原文。',
-                        )}
+                        <PasswordInput
+                          id="resource-webhook-secret"
+                          labelText="Webhook 验证密钥"
+                          autoComplete="new-password"
+                          value={text('secret')}
+                          onChange={(event) => set('secret', event.target.value)}
+                          helperText={existing ? '留空保留已有密钥；填写新值会加密保存。' :
+                            spec.type === 'github_issue' ? '填写 GitHub Webhook 中设置的 Secret，保存后加密存储。' :
+                              '发送请求时在 Authorization: Bearer 后携带此密钥，保存后加密存储。'}
+                        />
                         {spec.type === 'github_issue' && (
                           <>
                             <TextInput
@@ -434,12 +458,14 @@ export default function ResourceEditor({
                               onChange={(event) => setGitHub('repository', event.target.value)}
                               helperText="只接收此仓库的 issue。"
                             />
-                            <TextInput
+                            <PasswordInput
                               id="github-token-secret"
-                              labelText="GitHub Token 环境变量"
-                              value={github.tokenSecretRef || ''}
-                              onChange={(event) => setGitHub('tokenSecretRef', event.target.value)}
-                              helperText="填写服务器环境变量名称；Token 需要该仓库 Issues 读写权限，以回复任务链接。"
+                              labelText="GitHub Token"
+                              autoComplete="new-password"
+                              value={github.token || ''}
+                              onChange={(event) => setGitHub('token', event.target.value)}
+                              helperText={existing && initial.spec.type === 'github_issue' ? '留空保留已有 Token；填写新值会加密保存。' :
+                                '填写具有该仓库 Issues 读写权限的 Token，用于回复任务链接；保存后加密存储。'}
                             />
                             <TextArea
                               id="github-assignees"
@@ -461,7 +487,7 @@ export default function ResourceEditor({
                               <strong>连接 GitHub Webhook</strong>
                               <p>
                                 在仓库 Webhook 中填写下方地址，选择 application/json 和 Issues 事件，
-                                并设置与服务器环境变量一致的 Secret。服务器需配置公开访问地址 server.public_url。
+                                Secret 与上方 Webhook 验证密钥保持一致。服务器需配置公开访问地址 server.public_url。
                               </p>
                               <code>
                                 {`${window.location.origin}/hooks/${doc.metadata.name || '<接入点名称>'}`}
@@ -667,21 +693,25 @@ export default function ResourceEditor({
                           />
                         </div>
                         <div className="full-width">
-                          {objectField(
-                            'mcpServers',
-                            'MCP 服务 · JSON',
-                            '按名称配置 command / args / env 或 url。',
-                          )}
+                          <TextArea
+                            className="code-input"
+                            id="resource-mcpServers"
+                            labelText="MCP 服务 · JSON"
+                            value={mcpServersJSON}
+                            rows={5}
+                            onChange={(event) => setMCPServersJSON(event.target.value)}
+                            helperText="按名称配置 command / args / env 或 url。"
+                          />
                         </div>
-                        {objectField(
+                        {environmentFields(
                           'env',
-                          '环境变量 · JSON',
-                          '普通环境变量，例如 {"CI":"true"}。',
+                          '环境变量',
+                          '填写变量名和值，例如 CI 和 true。',
                         )}
-                        {objectField(
+                        {environmentFields(
                           'secretEnv',
-                          '密钥环境变量引用 · JSON',
-                          '容器变量名到服务器密钥变量名，例如 {"GH_TOKEN":"GITHUB_TOKEN"}。',
+                          '密钥环境变量引用',
+                          '将任务中的变量名映射到已有服务器密钥变量，例如 GH_TOKEN 对应 GITHUB_TOKEN。',
                         )}
                       </>
                     )}

@@ -637,10 +637,10 @@ export function Configuration() {
             </li>
           </ol>
           <div className="security-note">
-            <strong>模型和沙箱 API 密钥加密保存</strong>
+            <strong>接入点凭据与 API 密钥加密保存</strong>
             <p>
-              可在资源编辑器或 YAML 的 apiKey 中填写；导出不包含密钥，向新环境导入时需重新填写。
-              Webhook 和工作空间密钥继续使用环境变量引用。
+              可在资源编辑器中直接填写；导出不包含密钥，向新环境导入时需重新填写。
+              工作空间环境变量支持逐行编辑，密钥引用仍对应已有的服务器环境变量。
             </p>
           </div>
         </aside>

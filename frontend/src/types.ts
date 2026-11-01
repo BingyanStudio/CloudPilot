@@ -24,7 +24,8 @@ export interface EventDetail {
 }
 export interface GitHubInput {
   repository: string;
-  tokenSecretRef: string;
+  token?: string;
+  tokenSecretRef?: string;
   assignees: string[];
   labels: string[];
 }
@@ -164,7 +165,7 @@ export function template(kind: Kind): Resource {
     Input: {
       type: 'webhook',
       pipelineRef: '',
-      secretRef: 'CLOUDPILOT_WEBHOOK_SECRET',
+      secret: '',
       paused: false,
     },
     Pipeline: {
