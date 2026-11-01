@@ -64,6 +64,7 @@ export interface AgentSession {
   threadId: string;
   state: string;
   currentTurnId: number;
+  workspaceLost: boolean;
   lastError: string;
   createdAt: string;
   updatedAt: string;
@@ -123,8 +124,31 @@ export const kindDescriptions: Record<Kind, string> = {
   Pipeline: '为事件配置执行时间、并发限制和运行资源。',
   Worker: '配置 Codex 使用的模型、API 端点和密钥引用。',
   Workspace: '为智能体准备代码仓库、提示词、工具和 MCP 服务。',
-  Runner: '使用 Docker 为每次运行提供独立的计算环境。',
+  Runner: '使用 Docker 或 E2B 兼容沙箱提供独立的计算环境。',
 };
+
+export function runnerSpec(type: string): Spec {
+  if (type === 'e2b')
+    return {
+      type,
+      e2b: {
+        provider: 'e2b',
+        domain: 'e2b.app',
+        apiKeySecretRef: 'E2B_API_KEY',
+        template: '',
+        leaseSeconds: 900,
+        idleStrategy: 'pause',
+      },
+    };
+  return {
+    type: 'docker',
+    image: 'cloudpilot-codex:latest',
+    network: 'bridge',
+    memory: '2g',
+    cpus: '2',
+  };
+}
+
 export function template(kind: Kind): Resource {
   const specs: Record<Kind, Spec> = {
     Input: {
@@ -159,13 +183,7 @@ export function template(kind: Kind): Resource {
       env: {},
       secretEnv: {},
     },
-    Runner: {
-      type: 'docker',
-      image: 'cloudpilot-codex:latest',
-      network: 'bridge',
-      memory: '2g',
-      cpus: '2',
-    },
+    Runner: runnerSpec('docker'),
   };
   return {
     apiVersion: 'cloudpilot.dev/v1alpha1',

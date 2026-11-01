@@ -1102,6 +1102,10 @@ components:
           description: Maps container environment names to server environment secret names.
       additionalProperties: false
     RunnerSpec:
+      oneOf:
+      - $ref: '#/components/schemas/DockerRunnerSpec'
+      - $ref: '#/components/schemas/E2BRunnerSpec'
+    DockerRunnerSpec:
       type: object
       properties:
         type:
@@ -1121,6 +1125,65 @@ components:
         cpus:
           type: string
           example: '2'
+      additionalProperties: false
+    E2BRunnerSpec:
+      type: object
+      properties:
+        type:
+          type: string
+          const: e2b
+        e2b:
+          $ref: '#/components/schemas/E2BRunnerOptions'
+      required:
+      - type
+      - e2b
+      additionalProperties: false
+    E2BRunnerOptions:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum:
+          - e2b
+          - novita
+          default: e2b
+        domain:
+          type: string
+          maxLength: 253
+          description: Sandbox DNS hostname without scheme, port or path. Defaults to e2b.app for e2b and
+            us-phx-1.sandbox.novita.ai for novita.
+        apiUrl:
+          type: string
+          description: Optional absolute HTTP(S) management API base URL override without embedded credentials,
+            query or fragment. Leave empty to use the provider default.
+        apiKeySecretRef:
+          type: string
+          pattern: ^[A-Za-z_][A-Za-z0-9_]*$
+          description: Server environment variable containing the sandbox provider API key. The value is never
+            stored in the resource or injected into the sandbox as a task credential.
+        template:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: '^\S+$'
+          description: Provider template ID or alias with Node.js and Codex installed. CPU and memory are
+            configured on the template rather than through Docker runner fields.
+        leaseSeconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+          default: 900
+          description: Renewable sandbox lease, independent of the pipeline turn timeout. The provider account
+            may enforce a lower maximum.
+        idleStrategy:
+          type: string
+          enum:
+          - pause
+          default: pause
+          description: Pause the sandbox between interactive turns and reconnect to the retained workspace on resume.
+      required:
+      - apiKeySecretRef
+      - template
       additionalProperties: false
     Event:
       type: object
@@ -1488,6 +1551,10 @@ components:
         currentTurnId:
           type: integer
           minimum: 0
+        workspaceLost:
+          type: boolean
+          description: The retained execution workspace is no longer available. Resuming or sending another turn
+            is disabled; close this session before starting a fresh run.
         lastError:
           type: string
         createdAt:
@@ -1507,6 +1574,7 @@ components:
       - threadId
       - state
       - currentTurnId
+      - workspaceLost
       - lastError
       - createdAt
       - updatedAt

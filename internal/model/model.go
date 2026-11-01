@@ -93,11 +93,22 @@ type MCPServer struct {
 }
 
 type RunnerSpec struct {
-	Type    string `json:"type"`
-	Image   string `json:"image"`
-	Network string `json:"network"`
-	Memory  string `json:"memory"`
-	CPUs    string `json:"cpus"`
+	Type    string         `json:"type"`
+	Image   string         `json:"image,omitempty"`
+	Network string         `json:"network,omitempty"`
+	Memory  string         `json:"memory,omitempty"`
+	CPUs    string         `json:"cpus,omitempty"`
+	E2B     *E2BRunnerSpec `json:"e2b,omitempty"`
+}
+
+type E2BRunnerSpec struct {
+	Provider        string `json:"provider"`
+	Domain          string `json:"domain"`
+	APIURL          string `json:"apiUrl,omitempty"`
+	APIKeySecretRef string `json:"apiKeySecretRef"`
+	Template        string `json:"template"`
+	LeaseSeconds    int    `json:"leaseSeconds"`
+	IdleStrategy    string `json:"idleStrategy"`
 }
 
 type User struct {

@@ -53,7 +53,7 @@ func Open(driver, dsn string) (*gorm.DB, error) {
 		sqlDB.SetMaxIdleConns(5)
 		sqlDB.SetConnMaxLifetime(30 * time.Minute)
 	}
-	if err := db.AutoMigrate(&Resource{}, &User{}, &Session{}, &Event{}, &Run{}, &RunLog{}, &Artifact{}, &PipelineState{}, &AgentSession{}, &AgentTurn{}, &SessionEvent{}); err != nil {
+	if err := db.AutoMigrate(&Resource{}, &User{}, &Session{}, &Event{}, &Run{}, &RunLog{}, &Artifact{}, &PipelineState{}, &AgentSession{}, &AgentTurn{}, &SessionEvent{}, &RuntimeInstance{}); err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("migrate database: %w", err)
 	}

@@ -21,6 +21,7 @@ type AgentSession struct {
 	State         string          `gorm:"size:32;index" json:"state"`
 	CurrentTurnID uint            `json:"currentTurnId"`
 	Snapshot      json.RawMessage `gorm:"serializer:json" json:"-"`
+	WorkspaceLost bool            `json:"workspaceLost"`
 	LastError     string          `json:"lastError"`
 	CreatedAt     time.Time       `json:"createdAt"`
 	UpdatedAt     time.Time       `json:"updatedAt"`

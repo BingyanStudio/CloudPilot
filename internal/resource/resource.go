@@ -350,16 +350,34 @@ func normalize(doc model.Document) (model.Document, error) {
 		if s.Type == "" {
 			s.Type = "docker"
 		}
-		if s.Type != "docker" {
-			return doc, errors.New("runner type must be docker")
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(doc.Spec, &fields); err != nil {
+			return doc, err
 		}
-		if s.Image == "" {
-			s.Image = "cloudpilot-codex:latest"
-		}
-		for name, value := range map[string]string{"image": s.Image, "network": s.Network, "memory": s.Memory, "cpus": s.CPUs} {
-			if strings.HasPrefix(value, "-") || strings.ContainsAny(value, "\r\n\x00") {
-				return doc, fmt.Errorf("invalid runner %s", name)
+		switch s.Type {
+		case "docker":
+			if _, ok := fields["e2b"]; ok {
+				return doc, errors.New("docker runner must not include e2b configuration")
 			}
+			if s.Image == "" {
+				s.Image = "cloudpilot-codex:latest"
+			}
+			for name, value := range map[string]string{"image": s.Image, "network": s.Network, "memory": s.Memory, "cpus": s.CPUs} {
+				if strings.HasPrefix(value, "-") || strings.ContainsAny(value, "\r\n\x00") {
+					return doc, fmt.Errorf("invalid runner %s", name)
+				}
+			}
+		case "e2b":
+			for _, name := range []string{"image", "network", "memory", "cpus"} {
+				if _, ok := fields[name]; ok {
+					return doc, fmt.Errorf("e2b runner must not include docker field %s", name)
+				}
+			}
+			if err := normalizeE2B(s.E2B); err != nil {
+				return doc, err
+			}
+		default:
+			return doc, errors.New("runner type must be docker or e2b")
 		}
 		spec = s
 	default:
@@ -368,6 +386,58 @@ func normalize(doc model.Document) (model.Document, error) {
 	var err error
 	doc.Spec, err = json.Marshal(spec)
 	return doc, err
+}
+
+// normalizeE2B validates the provider connection and applies portable runner defaults.
+func normalizeE2B(s *model.E2BRunnerSpec) error {
+	if s == nil {
+		return errors.New("e2b runner requires e2b configuration")
+	}
+	if s.Provider == "" {
+		s.Provider = "e2b"
+	}
+	if s.Provider != "e2b" && s.Provider != "novita" {
+		return errors.New("e2b provider must be e2b or novita")
+	}
+	if s.Domain == "" {
+		s.Domain = "e2b.app"
+		if s.Provider == "novita" {
+			s.Domain = "us-phx-1.sandbox.novita.ai"
+		}
+	}
+	if len(s.Domain) > 253 {
+		return errors.New("e2b domain must be a DNS hostname without a scheme, port or path")
+	}
+	for label := range strings.SplitSeq(s.Domain, ".") {
+		if !namePattern.MatchString(strings.ToLower(label)) {
+			return errors.New("e2b domain must be a DNS hostname without a scheme, port or path")
+		}
+	}
+	if s.APIURL != "" {
+		u, err := url.Parse(s.APIURL)
+		if err != nil || !validHTTPURL(s.APIURL) || u.RawQuery != "" || u.Fragment != "" {
+			return errors.New("e2b apiUrl must be an absolute HTTP(S) URL without embedded credentials, query or fragment")
+		}
+	}
+	if !envPattern.MatchString(s.APIKeySecretRef) {
+		return errors.New("e2b apiKeySecretRef must name an environment variable")
+	}
+	if strings.TrimSpace(s.Template) == "" || len(s.Template) > 255 || strings.ContainsAny(s.Template, " \t\r\n\x00") {
+		return errors.New("e2b template must name a sandbox template with Node.js and Codex installed")
+	}
+	if s.LeaseSeconds == 0 {
+		s.LeaseSeconds = 900
+	}
+	if s.LeaseSeconds < 60 || s.LeaseSeconds > 86400 {
+		return errors.New("e2b leaseSeconds must be between 60 and 86400")
+	}
+	if s.IdleStrategy == "" {
+		s.IdleStrategy = "pause"
+	}
+	if s.IdleStrategy != "pause" {
+		return errors.New("e2b idleStrategy must be pause")
+	}
+	return nil
 }
 
 func references(doc model.Document) []string {

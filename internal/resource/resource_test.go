@@ -136,3 +136,71 @@ func TestManifestApplyRoundTripAndAtomicValidation(t *testing.T) {
 		t.Fatalf("closed session should not block pipeline deletion: %v", err)
 	}
 }
+
+func TestE2BRunnerConfiguration(t *testing.T) {
+	runner := func(spec string) model.Document {
+		return model.Document{APIVersion: model.APIVersion, Kind: "Runner", Metadata: model.Metadata{Name: "sandbox"}, Spec: json.RawMessage(spec)}
+	}
+	for _, provider := range []struct{ name, domain string }{{"e2b", "e2b.app"}, {"novita", "us-phx-1.sandbox.novita.ai"}} {
+		t.Run(provider.name, func(t *testing.T) {
+			input := `{"type":"e2b","e2b":{"provider":"` + provider.name + `","apiKeySecretRef":"SANDBOX_API_KEY","template":"cloudpilot-codex"}}`
+			doc, err := normalize(runner(input))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var spec model.RunnerSpec
+			if err := json.Unmarshal(doc.Spec, &spec); err != nil {
+				t.Fatal(err)
+			}
+			if spec.E2B == nil || spec.E2B.Domain != provider.domain || spec.E2B.LeaseSeconds != 900 || spec.E2B.IdleStrategy != "pause" || spec.Image != "" {
+				t.Fatalf("unexpected runner defaults: %s", doc.Spec)
+			}
+			data, err := ExportYAML([]model.Document{doc})
+			if err != nil {
+				t.Fatal(err)
+			}
+			docs, err := ParseYAML(data)
+			if err != nil || len(docs) != 1 {
+				t.Fatalf("parse exported runner: %v", err)
+			}
+			if _, err := normalize(docs[0]); err != nil {
+				t.Fatalf("round-trip runner configuration: %v", err)
+			}
+		})
+	}
+	valid := `{"type":"e2b","e2b":{"apiKeySecretRef":"SANDBOX_API_KEY","template":"cloudpilot-codex"}}`
+	for _, input := range []string{
+		`{"type":"e2b"}`,
+		`{"type":"docker","e2b":null}`,
+		strings.Replace(valid, `"type":"e2b"`, `"type":"docker"`, 1),
+		strings.Replace(valid, `"type":"e2b"`, `"type":"e2b","image":""`, 1),
+		strings.Replace(valid, `"type":"e2b"`, `"type":"e2b","cpus":"2"`, 1),
+		strings.Replace(valid, `"template":"cloudpilot-codex"`, `"template":""`, 1),
+		strings.Replace(valid, `"SANDBOX_API_KEY"`, `"secret-value"`, 1),
+		strings.Replace(valid, `"e2b":{`, `"e2b":{"provider":"unsupported",`, 1),
+		strings.Replace(valid, `"e2b":{`, `"e2b":{"domain":"https://sandbox.example.com",`, 1),
+		strings.Replace(valid, `"e2b":{`, `"e2b":{"domain":"sandbox.example.com:443",`, 1),
+		strings.Replace(valid, `"e2b":{`, `"e2b":{"apiUrl":"https://key@api.example.com",`, 1),
+		strings.Replace(valid, `"e2b":{`, `"e2b":{"apiUrl":"https://api.example.com?key=secret",`, 1),
+		strings.Replace(valid, `"e2b":{`, `"e2b":{"leaseSeconds":30,`, 1),
+		strings.Replace(valid, `"e2b":{`, `"e2b":{"leaseSeconds":86401,`, 1),
+		strings.Replace(valid, `"e2b":{`, `"e2b":{"idleStrategy":"keepalive",`, 1),
+		strings.Replace(valid, `"e2b":{`, `"e2b":{"typo":true,`, 1),
+	} {
+		if _, err := normalize(runner(input)); err == nil {
+			t.Errorf("invalid runner configuration accepted: %s", input)
+		}
+	}
+	custom := strings.Replace(valid, `"e2b":{`, `"e2b":{"domain":"sandboxes.example.com","apiUrl":"https://api.example.com/v1","leaseSeconds":1800,`, 1)
+	doc, err := normalize(runner(custom))
+	if err != nil {
+		t.Fatalf("custom provider endpoint rejected: %v", err)
+	}
+	var spec model.RunnerSpec
+	if err := json.Unmarshal(doc.Spec, &spec); err != nil {
+		t.Fatal(err)
+	}
+	if spec.E2B.Provider != "e2b" || spec.E2B.Domain != "sandboxes.example.com" || spec.E2B.APIURL != "https://api.example.com/v1" || spec.E2B.LeaseSeconds != 1800 {
+		t.Fatalf("custom connection changed: %s", doc.Spec)
+	}
+}

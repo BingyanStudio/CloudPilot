@@ -19,7 +19,7 @@ import { parseDocument, stringify } from 'yaml';
 import { message, request, resourcePath } from './api';
 import { ErrorNotice, PageHeading } from './components';
 import { navigate } from './hooks';
-import { kindLabels, type Kind, type Resource, type Spec } from './types';
+import { kindLabels, runnerSpec, type Kind, type Resource, type Spec } from './types';
 
 function assertFormShape(value: Resource) {
   const spec = value.spec;
@@ -52,6 +52,14 @@ function assertFormShape(value: Resource) {
   for (const key of ['concurrency', 'maxRetries', 'timeoutSeconds'])
     if (spec[key] !== undefined && typeof spec[key] !== 'number')
       throw new Error(`spec.${key} 必须是数字。`);
+  if (spec.e2b !== undefined) {
+    if (!object(spec.e2b)) throw new Error('spec.e2b 必须是对象。');
+    for (const key of ['provider', 'domain', 'apiUrl', 'apiKeySecretRef', 'template', 'idleStrategy'])
+      if (spec.e2b[key] !== undefined && typeof spec.e2b[key] !== 'string')
+        throw new Error(`spec.e2b.${key} 必须是字符串。`);
+    if (spec.e2b.leaseSeconds !== undefined && typeof spec.e2b.leaseSeconds !== 'number')
+      throw new Error('spec.e2b.leaseSeconds 必须是数字。');
+  }
   if (spec.paused !== undefined && typeof spec.paused !== 'boolean')
     throw new Error('spec.paused 必须是布尔值。');
   if (
@@ -116,6 +124,7 @@ export default function ResourceEditor({
     ),
   );
   const spec = doc.spec;
+  const e2b = (spec.e2b ?? {}) as Spec;
   const set = (key: string, value: unknown) =>
     setDoc((current) => ({
       ...current,
@@ -131,6 +140,21 @@ export default function ResourceEditor({
       onChange={(event) => set(key, event.target.value)}
       helperText={helper}
       placeholder={placeholder}
+    />
+  );
+  const setE2B = (key: string, value: unknown) =>
+    setDoc((current) => ({
+      ...current,
+      spec: { ...current.spec, e2b: { ...((current.spec.e2b ?? {}) as Spec), [key]: value } },
+    }));
+  const e2bField = (key: string, label: string, helper?: string) => (
+    <TextInput
+      key={key}
+      id={`resource-e2b-${key}`}
+      labelText={label}
+      value={String(e2b[key] ?? '')}
+      onChange={(event) => setE2B(key, event.target.value)}
+      helperText={helper}
     />
   );
   const textarea = (key: string, label: string, helper?: string) => (
@@ -396,11 +420,77 @@ export default function ResourceEditor({
                     )}
                     {doc.kind === 'Runner' && (
                       <>
-                        {field('type', '设施类型', '首版支持 docker。')}
-                        {field('image', 'Docker 镜像')}
-                        {field('network', 'Docker 网络')}
-                        {field('memory', '内存限制', '例如 2g、4096m。')}
-                        {field('cpus', 'CPU 限制', '例如 2、0.5。')}
+                        <Select
+                          id="resource-runner-type"
+                          labelText="设施类型"
+                          value={text('type') || 'docker'}
+                          onChange={(event) =>
+                            setDoc((current) => ({ ...current, spec: runnerSpec(event.target.value) }))
+                          }
+                        >
+                          <SelectItem value="docker" text="Docker" />
+                          <SelectItem value="e2b" text="E2B 兼容沙箱" />
+                        </Select>
+                        {spec.type === 'e2b' ? (
+                          <>
+                            <Select
+                              id="resource-e2b-provider"
+                              labelText="沙箱服务商"
+                              value={String(e2b.provider || 'e2b')}
+                              onChange={(event) => {
+                                const provider = event.target.value;
+                                const domain =
+                                  provider === 'novita' ? 'us-phx-1.sandbox.novita.ai' : 'e2b.app';
+                                const apiKeySecretRef =
+                                  provider === 'novita' ? 'NOVITA_API_KEY' : 'E2B_API_KEY';
+                                const defaultDomain =
+                                  !e2b.domain ||
+                                  ['e2b.app', 'us-phx-1.sandbox.novita.ai'].includes(String(e2b.domain));
+                                const defaultKey =
+                                  !e2b.apiKeySecretRef ||
+                                  ['E2B_API_KEY', 'NOVITA_API_KEY'].includes(String(e2b.apiKeySecretRef));
+                                set('e2b', {
+                                  ...e2b,
+                                  provider,
+                                  domain: defaultDomain ? domain : e2b.domain,
+                                  apiKeySecretRef: defaultKey ? apiKeySecretRef : e2b.apiKeySecretRef,
+                                });
+                              }}
+                            >
+                              <SelectItem value="e2b" text="E2B / 兼容服务" />
+                              <SelectItem value="novita" text="Novita" />
+                            </Select>
+                            {e2bField('domain', '沙箱域名', '仅填写域名，不含协议、端口或路径。')}
+                            {e2bField('apiUrl', '管理 API 地址', '可选；留空使用服务商默认地址。')}
+                            {e2bField('apiKeySecretRef', 'API 密钥环境变量', '密钥保留在服务器环境变量中，配置仅存储引用。')}
+                            {e2bField('template', '沙箱模板', '必填。模板需预装 Node.js 和 Codex；CPU、内存由模板配置。')}
+                            <NumberInput
+                              id="resource-e2b-lease"
+                              label="沙箱租期（秒）"
+                              value={Number(e2b.leaseSeconds ?? 900)}
+                              min={60}
+                              max={86400}
+                              onChange={(_, data) => setE2B('leaseSeconds', Number(data.value))}
+                              helperText="运行期间续期；上限取决于服务商账户，独立于流水线执行超时。"
+                            />
+                            <Select
+                              id="resource-e2b-idle"
+                              labelText="空闲策略"
+                              value={String(e2b.idleStrategy || 'pause')}
+                              onChange={(event) => setE2B('idleStrategy', event.target.value)}
+                              helperText="轮次结束后暂停沙箱，继续时恢复工作区。"
+                            >
+                              <SelectItem value="pause" text="暂停并保留工作区" />
+                            </Select>
+                          </>
+                        ) : (
+                          <>
+                            {field('image', 'Docker 镜像')}
+                            {field('network', 'Docker 网络')}
+                            {field('memory', '内存限制', '例如 2g、4096m。')}
+                            {field('cpus', 'CPU 限制', '例如 2、0.5。')}
+                          </>
+                        )}
                       </>
                     )}
                     {doc.kind === 'Workspace' && (
