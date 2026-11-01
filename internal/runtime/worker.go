@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 
 	"github.com/BingyanStudio/CloudPilot/internal/engine"
@@ -74,19 +73,17 @@ type Codex struct{}
 
 // Prepare resolves the worker credential and generates an isolated Codex bootstrap.
 func (Codex) Prepare(task engine.Task) (PreparedWorker, error) {
-	reference := task.Worker.APIKeySecretRef
-	if reference == "" {
-		return PreparedWorker{}, errors.New("worker apiKeySecretRef is required")
+	value, err := resolveAPIKey(task.Encryption, "Worker", task.Worker.APIKey, task.Worker.APIKeySecretRef)
+	if err != nil {
+		return PreparedWorker{}, err
 	}
-	value, ok := os.LookupEnv(reference)
-	if !ok || value == "" {
-		return PreparedWorker{}, fmt.Errorf("worker secret %s is not configured", reference)
-	}
+	worker := task.Worker
+	worker.APIKey = ""
 	payload, err := json.Marshal(struct {
 		Worker    model.WorkerSpec    `json:"worker"`
 		Workspace model.WorkspaceSpec `json:"workspace"`
 		Event     json.RawMessage     `json:"event"`
-	}{task.Worker, task.Workspace, task.Event.Payload})
+	}{worker, task.Workspace, task.Event.Payload})
 	if err != nil {
 		return PreparedWorker{}, err
 	}

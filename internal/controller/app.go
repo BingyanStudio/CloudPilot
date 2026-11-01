@@ -3,6 +3,7 @@ package controller
 import (
 	"bytes"
 	"context"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -33,6 +34,7 @@ import (
 type App struct {
 	DB            *gorm.DB
 	Engine        *engine.Engine
+	Encryption    cipher.AEAD
 	DataDir       string
 	SecureCookies bool
 	PublicURL     string
@@ -190,7 +192,7 @@ func (a *App) SaveResource(c *echo.Context) error {
 	if c.Request().Method == http.MethodPut && (doc.Kind != c.Param("kind") || doc.Metadata.Name != c.Param("name")) {
 		return fail(c, http.StatusBadRequest, "URL and resource identity must match")
 	}
-	result, err := resource.Apply(a.DB, []model.Document{doc})
+	result, err := resource.Apply(a.DB, []model.Document{doc}, a.Encryption)
 	if err != nil {
 		return manifestError(c, err)
 	}
@@ -220,7 +222,7 @@ func (a *App) Import(c *echo.Context) error {
 	if err != nil {
 		return fail(c, http.StatusBadRequest, err.Error())
 	}
-	result, err := resource.Apply(a.DB, docs)
+	result, err := resource.Apply(a.DB, docs, a.Encryption)
 	if err != nil {
 		return manifestError(c, err)
 	}

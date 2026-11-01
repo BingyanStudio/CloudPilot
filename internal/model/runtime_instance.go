@@ -6,7 +6,7 @@ import (
 )
 
 // RuntimeInstance records a remote execution environment from creation through cleanup.
-// RunnerSnapshot contains connection settings and credential references, never resolved credentials.
+// RunnerSnapshot contains connection settings and encrypted credentials or legacy references.
 type RuntimeInstance struct {
 	ID             uint            `gorm:"primaryKey" json:"id"`
 	DeploymentID   string          `gorm:"size:64;index:idx_runtime_deployment_state" json:"deploymentId"`

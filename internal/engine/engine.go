@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"crypto/cipher"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,12 +20,13 @@ type Executor interface {
 
 // Task is the immutable resource configuration selected when an event starts.
 type Task struct {
-	Run       model.Run
-	Event     model.Event
-	Pipeline  model.PipelineSpec
-	Worker    model.WorkerSpec
-	Workspace model.WorkspaceSpec
-	Runner    model.RunnerSpec
+	Encryption cipher.AEAD `json:"-"`
+	Run        model.Run
+	Event      model.Event
+	Pipeline   model.PipelineSpec
+	Worker     model.WorkerSpec
+	Workspace  model.WorkspaceSpec
+	Runner     model.RunnerSpec
 }
 
 type execution struct {
@@ -41,6 +43,7 @@ type execution struct {
 type Engine struct {
 	DB           *gorm.DB
 	Executor     Executor
+	Encryption   cipher.AEAD
 	PollInterval time.Duration
 
 	mu      sync.Mutex

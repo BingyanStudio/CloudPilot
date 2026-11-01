@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -12,6 +13,58 @@ import (
 	"github.com/BingyanStudio/CloudPilot/internal/engine"
 	"github.com/BingyanStudio/CloudPilot/internal/model"
 )
+
+// TestEncryptedCredentials resolves keys after restart without putting them in worker files.
+func TestEncryptedCredentials(t *testing.T) {
+	db, err := model.Open("sqlite", filepath.Join(t.TempDir(), "credentials.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, _ := db.DB()
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	key := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("a", 32)))
+	encryption, err := model.Unlock(db, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerKey, err := model.Encrypt(encryption, "Worker", "model-api-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sandboxKey, err := model.Encrypt(encryption, "Runner", "sandbox-api-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := json.Marshal(model.ExecutionSnapshot{
+		Worker: model.WorkerSpec{Model: "fixture", APIKey: workerKey},
+		Runner: model.RunnerSpec{Type: "e2b", E2B: &model.E2BRunnerSpec{APIKey: sandboxKey}},
+	})
+	if err != nil || bytes.Contains(snapshot, []byte("model-api-key")) || bytes.Contains(snapshot, []byte("sandbox-api-key")) {
+		t.Fatal("snapshot exposed a plaintext credential", err)
+	}
+	var restored model.ExecutionSnapshot
+	if err := json.Unmarshal(snapshot, &restored); err != nil {
+		t.Fatal(err)
+	}
+	encryption, err = model.Unlock(db, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := engine.Task{Encryption: encryption, Worker: restored.Worker, Runner: restored.Runner}
+	prepared, err := (Codex{}).PrepareSession(task)
+	if err != nil || prepared.Environment["OPENAI_API_KEY"] != "model-api-key" {
+		t.Fatal("worker could not decrypt the restored key", err)
+	}
+	for _, data := range prepared.Files {
+		if bytes.Contains(data, []byte("model-api-key")) || bytes.Contains(data, []byte(workerKey)) {
+			t.Fatal("worker files contained a credential")
+		}
+	}
+	client, err := (&E2B{DB: db, Encryption: encryption}).client(restored.Runner)
+	if err != nil || client.APIKey != "sandbox-api-key" {
+		t.Fatal("sandbox could not decrypt the restored key", err)
+	}
+}
 
 func TestGitHubIssueContextForWorkers(t *testing.T) {
 	t.Setenv("TEST_CODEX_SECRET", "worker-test-key")

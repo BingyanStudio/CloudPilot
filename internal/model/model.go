@@ -31,8 +31,22 @@ type Resource struct {
 	UpdatedAt  time.Time       `json:"updatedAt"`
 }
 
+// Document returns a public resource without stored API credentials.
 func (r Resource) Document() Document {
-	return Document{APIVersion: APIVersion, Kind: r.Kind, Metadata: Metadata{Name: r.Name, Generation: r.Generation}, Spec: r.Spec}
+	doc := Document{APIVersion: APIVersion, Kind: r.Kind, Metadata: Metadata{Name: r.Name, Generation: r.Generation}, Spec: r.Spec}
+	if r.Kind == "Worker" || r.Kind == "Runner" {
+		var spec map[string]any
+		if err := json.Unmarshal(r.Spec, &spec); err != nil {
+			doc.Spec = json.RawMessage(`{}`)
+			return doc
+		}
+		delete(spec, "apiKey")
+		if e2b, ok := spec["e2b"].(map[string]any); ok {
+			delete(e2b, "apiKey")
+		}
+		doc.Spec, _ = json.Marshal(spec)
+	}
+	return doc
 }
 
 func (r Resource) Decode(target any) error { return json.Unmarshal(r.Spec, target) }
@@ -74,7 +88,8 @@ type WorkerSpec struct {
 	Type            string `json:"type"`
 	Model           string `json:"model"`
 	Endpoint        string `json:"endpoint"`
-	APIKeySecretRef string `json:"apiKeySecretRef"`
+	APIKey          string `json:"apiKey,omitempty"`
+	APIKeySecretRef string `json:"apiKeySecretRef,omitempty"`
 	Instructions    string `json:"instructions"`
 }
 
@@ -113,7 +128,8 @@ type E2BRunnerSpec struct {
 	Provider        string `json:"provider"`
 	Domain          string `json:"domain"`
 	APIURL          string `json:"apiUrl,omitempty"`
-	APIKeySecretRef string `json:"apiKeySecretRef"`
+	APIKey          string `json:"apiKey,omitempty"`
+	APIKeySecretRef string `json:"apiKeySecretRef,omitempty"`
 	Template        string `json:"template"`
 	LeaseSeconds    int    `json:"leaseSeconds"`
 	IdleStrategy    string `json:"idleStrategy"`

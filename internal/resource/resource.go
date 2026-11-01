@@ -2,6 +2,7 @@ package resource
 
 import (
 	"bytes"
+	"crypto/cipher"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,6 +77,7 @@ func ExportYAML(docs []model.Document) ([]byte, error) {
 	encoder.SetIndent(2)
 	for _, doc := range docs {
 		doc.Metadata.Generation = 0
+		doc.Spec = (model.Resource{Kind: doc.Kind, Spec: doc.Spec}).Document().Spec
 		data, err := json.Marshal(doc)
 		if err != nil {
 			return nil, err
@@ -95,7 +97,7 @@ func ExportYAML(docs []model.Document) ([]byte, error) {
 }
 
 // Apply validates the entire resource graph before atomically storing a batch.
-func Apply(db *gorm.DB, docs []model.Document) ([]model.Document, error) {
+func Apply(db *gorm.DB, docs []model.Document, encryption cipher.AEAD) ([]model.Document, error) {
 	if len(docs) == 0 || len(docs) > 100 {
 		return nil, errors.New("apply requires between 1 and 100 resources")
 	}
@@ -109,11 +111,11 @@ func Apply(db *gorm.DB, docs []model.Document) ([]model.Document, error) {
 		}
 		graph := make(map[string]model.Document, len(stored)+len(docs))
 		for _, item := range stored {
-			graph[key(item.Kind, item.Name)] = item.Document()
+			graph[key(item.Kind, item.Name)] = model.Document{APIVersion: apiVersion, Kind: item.Kind, Metadata: model.Metadata{Name: item.Name, Generation: item.Generation}, Spec: item.Spec}
 		}
 		batch := make(map[string]bool, len(docs))
 		for _, original := range docs {
-			doc, err := normalize(original)
+			doc, err := normalize(original, graph[key(original.Kind, original.Metadata.Name)], encryption)
 			if err != nil {
 				return fmt.Errorf("%s/%s: %w", original.Kind, original.Metadata.Name, err)
 			}
@@ -235,7 +237,7 @@ func decodeStrict(data []byte, target any) error {
 	return nil
 }
 
-func normalize(doc model.Document) (model.Document, error) {
+func normalize(doc, previous model.Document, encryption cipher.AEAD) (model.Document, error) {
 	if doc.APIVersion != apiVersion {
 		return doc, fmt.Errorf("apiVersion must be %s", apiVersion)
 	}
@@ -321,8 +323,21 @@ func normalize(doc model.Document) (model.Document, error) {
 		if strings.TrimSpace(s.Model) == "" || strings.ContainsAny(s.Model, "\r\n") {
 			return doc, errors.New("model is required and must be a single line")
 		}
-		if !envPattern.MatchString(s.APIKeySecretRef) {
-			return doc, errors.New("apiKeySecretRef must name an environment variable")
+		var old model.WorkerSpec
+		if len(previous.Spec) > 0 {
+			if err := json.Unmarshal(previous.Spec, &old); err != nil {
+				return doc, err
+			}
+		}
+		var err error
+		s.APIKey, err = sealAPIKey(encryption, doc.Kind, s.APIKey, s.APIKeySecretRef, old.APIKey)
+		if err != nil {
+			return doc, err
+		}
+		if s.APIKey != "" {
+			s.APIKeySecretRef = ""
+		} else if !envPattern.MatchString(s.APIKeySecretRef) {
+			return doc, errors.New("apiKey is required; apiKeySecretRef may reference a legacy environment variable")
 		}
 		if s.Endpoint != "" && !validHTTPURL(s.Endpoint) {
 			return doc, errors.New("endpoint must be an absolute HTTP(S) URL without embedded credentials")
@@ -410,6 +425,26 @@ func normalize(doc model.Document) (model.Document, error) {
 					return doc, fmt.Errorf("e2b runner must not include docker field %s", name)
 				}
 			}
+			var old model.RunnerSpec
+			if len(previous.Spec) > 0 {
+				if err := json.Unmarshal(previous.Spec, &old); err != nil {
+					return doc, err
+				}
+			}
+			if s.E2B != nil {
+				var previousKey string
+				if old.E2B != nil {
+					previousKey = old.E2B.APIKey
+				}
+				var err error
+				s.E2B.APIKey, err = sealAPIKey(encryption, doc.Kind, s.E2B.APIKey, s.E2B.APIKeySecretRef, previousKey)
+				if err != nil {
+					return doc, err
+				}
+				if s.E2B.APIKey != "" {
+					s.E2B.APIKeySecretRef = ""
+				}
+			}
 			if err := normalizeE2B(s.E2B); err != nil {
 				return doc, err
 			}
@@ -456,8 +491,8 @@ func normalizeE2B(s *model.E2BRunnerSpec) error {
 			return errors.New("e2b apiUrl must be an absolute HTTP(S) URL without embedded credentials, query or fragment")
 		}
 	}
-	if !envPattern.MatchString(s.APIKeySecretRef) {
-		return errors.New("e2b apiKeySecretRef must name an environment variable")
+	if s.APIKey == "" && !envPattern.MatchString(s.APIKeySecretRef) {
+		return errors.New("e2b apiKey is required; apiKeySecretRef may reference a legacy environment variable")
 	}
 	if strings.TrimSpace(s.Template) == "" || len(s.Template) > 255 || strings.ContainsAny(s.Template, " \t\r\n\x00") {
 		return errors.New("e2b template must name a sandbox template with Node.js and Codex installed")
@@ -475,6 +510,20 @@ func normalizeE2B(s *model.E2BRunnerSpec) error {
 		return errors.New("e2b idleStrategy must be pause")
 	}
 	return nil
+}
+
+// sealAPIKey encrypts a replacement or preserves the stored credential on an ordinary edit.
+func sealAPIKey(encryption cipher.AEAD, purpose, value, reference, previous string) (string, error) {
+	if value == "" {
+		if reference != "" {
+			return "", nil
+		}
+		return previous, nil
+	}
+	if strings.TrimSpace(value) == "" || len(value) > 4096 || strings.ContainsAny(value, "\r\n\x00") {
+		return "", errors.New("apiKey must contain 1–4096 bytes without newlines or NUL")
+	}
+	return model.Encrypt(encryption, purpose, value)
 }
 
 func references(doc model.Document) []string {

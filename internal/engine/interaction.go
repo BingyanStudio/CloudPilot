@@ -231,7 +231,7 @@ func (e *Engine) queueTurn(session model.AgentSession, text string, userID uint)
 }
 
 func (e *Engine) sessionTask(db *gorm.DB, session model.AgentSession) (Task, error) {
-	var task Task
+	task := Task{Encryption: e.Encryption}
 	if err := db.First(&task.Run, session.RunID).Error; err != nil {
 		return task, err
 	}

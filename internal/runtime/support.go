@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bytes"
+	"crypto/cipher"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"sync"
 
 	"github.com/BingyanStudio/CloudPilot/internal/engine"
+	"github.com/BingyanStudio/CloudPilot/internal/model"
 )
 
 const (
@@ -25,6 +27,17 @@ const (
 )
 
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// resolveAPIKey decrypts stored credentials and accepts legacy environment references.
+func resolveAPIKey(encryption cipher.AEAD, purpose, encrypted, reference string) (string, error) {
+	if encrypted != "" {
+		return model.Decrypt(encryption, purpose, encrypted)
+	}
+	if value := os.Getenv(reference); value != "" {
+		return value, nil
+	}
+	return "", fmt.Errorf("%s API key is not configured", purpose)
+}
 
 // resolveWorkerEnvironment resolves credentials without tying the values to a provider's transport.
 func resolveWorkerEnvironment(task engine.Task, prepared PreparedWorker) (map[string]string, []string, error) {

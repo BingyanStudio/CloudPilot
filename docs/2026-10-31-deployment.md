@@ -6,6 +6,7 @@
 
 | 配置项 | 默认值 | 用途 |
 | --- | --- | --- |
+| `encryption_key` | 空，必填 | 32 字节随机主密钥的 Base64 编码，用于加解密数据库中的 API key |
 | `server.address` | `:8080` | HTTP API 与静态前端 |
 | `server.secure_cookies` | `false` | HTTPS 部署时设为 `true` |
 | `server.public_url` | 空 | GitHub issue 回复中使用的 WebUI 基址，启用此 Input 时必填 |
@@ -18,6 +19,8 @@
 | `metrics.address` | 空 | 独立 Metrics 监听地址；留空禁用 |
 
 配置可通过 `CLOUDPILOT_` 环境变量覆盖，层级分隔符替换为下划线，例如 `CLOUDPILOT_DATABASE_DSN`、`CLOUDPILOT_SERVER_SECURE_COOKIES`。管理员密码为 12–72 字节，应使用 `CLOUDPILOT_ADMIN_PASSWORD` 注入。已存在的账号不会因为配置文件变更而重置密码。管理员会话有效期为 24 小时。
+
+首次启动前用 `openssl rand -base64 32` 生成一次主密钥，持久保存到部署的密钥配置，通过 `CLOUDPILOT_ENCRYPTION_KEY` 或 `encryption_key` 提供。服务使用 AES-256-GCM 加密模型和沙箱 API key，并在每次启动时核对数据库中的加密校验值；缺少密钥、格式错误或与数据库不匹配时拒绝启动。重启和恢复备份必须使用同一个主密钥，丢失后无法解密已有 API key；不要每次启动重新生成。主密钥应与数据库分开备份。
 
 前端内嵌在二进制中。升级时删除旧配置中的 `server.frontend_dir`，否则严格配置校验会拒绝启动。
 
@@ -42,12 +45,14 @@ MySQL 使用 `user:password@tcp(host:3306)/cloudpilot?charset=utf8mb4&parseTime=
 ```sh
 cp config.example.yaml config.yaml
 cp examples/docker.env.example .env
-# 编辑 .env，设置管理员密码、Webhook secret、模型 API key 和示例所需的 GitHub token。
+# 编辑 .env，设置主加密密钥、管理员密码、Webhook secret 和示例所需的 GitHub token。
 make worker-image
 docker compose up --build -d
 ```
 
 管理界面位于 <http://localhost:8080>。Compose 默认只向本机暴露 8080 和 9090；Metrics 使用独立端口 <http://localhost:9090/metrics>。数据库和文件产物持久化在 `cloudpilot-data` 卷。配置文件通过只读挂载提供；修改后重启服务。
+
+模型和沙箱 API key 在 Worker、Runner 编辑页直接填写，保存后无需重启。旧的 `apiKeySecretRef` 环境变量引用继续兼容；填写直接 API key 后会替换该引用。
 
 Compose 默认挂载 Docker socket，Docker runner 使用 Docker CLI 和 `/var/run/docker.sock` 创建执行容器。执行容器使用 `docker cp` 接收工作配置、返回产物，无需映射服务容器内部的主机路径，也不挂载 Docker socket。自定义 `DOCKER_HOST` 时应确保服务能访问对应 daemon；运行镜像必须存在于该 daemon 或可从镜像仓库拉取。
 

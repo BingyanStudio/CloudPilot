@@ -12,7 +12,8 @@ import (
 )
 
 type Config struct {
-	Server struct {
+	EncryptionKey string `mapstructure:"encryption_key"`
+	Server        struct {
 		Address       string `mapstructure:"address"`
 		SecureCookies bool   `mapstructure:"secure_cookies"`
 		PublicURL     string `mapstructure:"public_url"`
@@ -45,6 +46,7 @@ func Load(path string) (Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 	defaults := map[string]any{
+		"encryption_key": "",
 		"server.address": ":8080", "server.secure_cookies": false, "server.public_url": "",
 		"database.driver": "sqlite", "database.dsn": "data/cloudpilot.db", "admin.username": "admin", "admin.password": "",
 		"runtime.data_dir": "data/runs", "scheduler.poll_interval": "2s", "metrics.address": "",
@@ -58,6 +60,9 @@ func Load(path string) (Config, error) {
 	var cfg Config
 	if err := v.UnmarshalExact(&cfg); err != nil {
 		return cfg, fmt.Errorf("decode config: %w", err)
+	}
+	if cfg.EncryptionKey == "" {
+		return cfg, errors.New("encryption_key is required; set CLOUDPILOT_ENCRYPTION_KEY")
 	}
 	if cfg.Server.Address == "" || cfg.Database.DSN == "" || cfg.Runtime.DataDir == "" {
 		return cfg, errors.New("server.address, database.dsn and runtime.data_dir must not be empty")

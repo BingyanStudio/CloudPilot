@@ -145,6 +145,7 @@ func (e *Engine) dispatch(resource model.Resource, now time.Time) error {
 }
 
 func (e *Engine) prepare(task *Task) error {
+	task.Encryption = e.Encryption
 	for _, ref := range []struct {
 		kind, name string
 		target     any

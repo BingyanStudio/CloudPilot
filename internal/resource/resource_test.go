@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -9,6 +10,77 @@ import (
 
 	"github.com/BingyanStudio/CloudPilot/internal/model"
 )
+
+// TestEncryptedAPIKeys covers direct credentials, redaction, ordinary edits and replacement.
+func TestEncryptedAPIKeys(t *testing.T) {
+	db, err := model.Open("sqlite", filepath.Join(t.TempDir(), "credentials.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, _ := db.DB()
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	encryption, err := model.Unlock(db, base64.StdEncoding.EncodeToString([]byte(strings.Repeat("a", 32))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ kind, spec string }{
+		{"Worker", `{"model":"fixture","apiKey":"private-api-key"}`},
+		{"Runner", `{"type":"e2b","e2b":{"template":"fixture","apiKey":"private-api-key"}}`},
+	} {
+		doc := model.Document{APIVersion: model.APIVersion, Kind: tc.kind, Metadata: model.Metadata{Name: "encrypted"}, Spec: json.RawMessage(tc.spec)}
+		applied, err := Apply(db, []model.Document{doc}, encryption)
+		if err != nil {
+			t.Fatal(err)
+		}
+		readKey := func() string {
+			t.Helper()
+			stored, err := model.FindResource(db, tc.kind, "encrypted")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]any
+			if err := stored.Decode(&fields); err != nil {
+				t.Fatal(err)
+			}
+			if tc.kind == "Runner" {
+				fields = fields["e2b"].(map[string]any)
+			}
+			return fields["apiKey"].(string)
+		}
+		sealed := readKey()
+		if value, err := model.Decrypt(encryption, tc.kind, sealed); err != nil || value != "private-api-key" {
+			t.Fatal("credential was not encrypted", err)
+		}
+		for _, docs := range [][]model.Document{applied, {doc}} {
+			exported, err := ExportYAML(docs)
+			if err != nil || strings.Contains(string(exported), "apiKey:") || strings.Contains(string(exported), sealed) {
+				t.Fatal("export exposed a credential", err)
+			}
+		}
+		if strings.Contains(string(applied[0].Spec), "apiKey") {
+			t.Fatal("API response exposed the credential field")
+		}
+		applied, err = Apply(db, applied, encryption)
+		if err != nil || readKey() != sealed {
+			t.Fatal("ordinary edit did not preserve the stored credential", err)
+		}
+		replacement := applied[0]
+		replacement.Spec = json.RawMessage(strings.ReplaceAll(tc.spec, "private-api-key", "replacement-api-key"))
+		if _, err := Apply(db, []model.Document{replacement}, encryption); err != nil {
+			t.Fatal(err)
+		}
+		if value, err := model.Decrypt(encryption, tc.kind, readKey()); err != nil || value != "replacement-api-key" {
+			t.Fatal("credential replacement failed", err)
+		}
+	}
+	for _, value := range []string{"", "\nsecret", strings.Repeat("x", 4097)} {
+		spec, _ := json.Marshal(model.WorkerSpec{Model: "fixture", APIKey: value})
+		doc := model.Document{APIVersion: model.APIVersion, Kind: "Worker", Metadata: model.Metadata{Name: "invalid"}, Spec: spec}
+		if _, err := Apply(db, []model.Document{doc}, encryption); err == nil {
+			t.Fatal("accepted a missing or invalid API key")
+		}
+	}
+}
 
 const testManifest = `apiVersion: cloudpilot.dev/v1alpha1
 kind: Input
@@ -47,7 +119,7 @@ func TestManifestApplyRoundTripAndAtomicValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	applied, err := Apply(db, docs)
+	applied, err := Apply(db, docs, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,10 +148,10 @@ func TestManifestApplyRoundTripAndAtomicValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = Apply(db, roundTrip); err != nil {
+	if _, err = Apply(db, roundTrip, nil); err != nil {
 		t.Fatalf("round-trip import: %v", err)
 	}
-	if _, err = Apply(db, applied); !errors.Is(err, ErrConflict) {
+	if _, err = Apply(db, applied, nil); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale update should conflict: %v", err)
 	}
 	if err = Delete(db, "Worker", "codex"); !errors.Is(err, ErrReferenced) {
@@ -87,7 +159,7 @@ func TestManifestApplyRoundTripAndAtomicValidation(t *testing.T) {
 	}
 
 	bad := []model.Document{{APIVersion: model.APIVersion, Kind: "Runner", Metadata: model.Metadata{Name: "rollback"}, Spec: json.RawMessage(`{}`)}, {APIVersion: model.APIVersion, Kind: "Input", Metadata: model.Metadata{Name: "bad"}, Spec: json.RawMessage(`{"pipelineRef":"missing","secretRef":"SECRET"}`)}}
-	if _, err = Apply(db, bad); err == nil {
+	if _, err = Apply(db, bad, nil); err == nil {
 		t.Fatal("missing reference was accepted")
 	}
 	var count int64
@@ -106,7 +178,7 @@ func TestManifestApplyRoundTripAndAtomicValidation(t *testing.T) {
 	} {
 		parsed, parseErr := ParseYAML([]byte(input))
 		if parseErr == nil {
-			_, parseErr = Apply(db, parsed)
+			_, parseErr = Apply(db, parsed, nil)
 		}
 		if parseErr == nil {
 			t.Errorf("invalid manifest was accepted: %s", input)
@@ -144,7 +216,7 @@ func TestE2BRunnerConfiguration(t *testing.T) {
 	for _, provider := range []struct{ name, domain string }{{"e2b", "e2b.app"}, {"novita", "us-phx-1.sandbox.novita.ai"}} {
 		t.Run(provider.name, func(t *testing.T) {
 			input := `{"type":"e2b","e2b":{"provider":"` + provider.name + `","apiKeySecretRef":"SANDBOX_API_KEY","template":"cloudpilot-codex"}}`
-			doc, err := normalize(runner(input))
+			doc, err := normalize(runner(input), model.Document{}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -163,7 +235,7 @@ func TestE2BRunnerConfiguration(t *testing.T) {
 			if err != nil || len(docs) != 1 {
 				t.Fatalf("parse exported runner: %v", err)
 			}
-			if _, err := normalize(docs[0]); err != nil {
+			if _, err := normalize(docs[0], model.Document{}, nil); err != nil {
 				t.Fatalf("round-trip runner configuration: %v", err)
 			}
 		})
@@ -187,12 +259,12 @@ func TestE2BRunnerConfiguration(t *testing.T) {
 		strings.Replace(valid, `"e2b":{`, `"e2b":{"idleStrategy":"keepalive",`, 1),
 		strings.Replace(valid, `"e2b":{`, `"e2b":{"typo":true,`, 1),
 	} {
-		if _, err := normalize(runner(input)); err == nil {
+		if _, err := normalize(runner(input), model.Document{}, nil); err == nil {
 			t.Errorf("invalid runner configuration accepted: %s", input)
 		}
 	}
 	custom := strings.Replace(valid, `"e2b":{`, `"e2b":{"domain":"sandboxes.example.com","apiUrl":"https://api.example.com/v1","leaseSeconds":1800,`, 1)
-	doc, err := normalize(runner(custom))
+	doc, err := normalize(runner(custom), model.Document{}, nil)
 	if err != nil {
 		t.Fatalf("custom provider endpoint rejected: %v", err)
 	}
@@ -225,7 +297,7 @@ func TestGitHubInputValidationAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	applied, err := Apply(db, docs)
+	applied, err := Apply(db, docs, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +309,7 @@ func TestGitHubInputValidationAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Apply(db, roundTrip); err != nil {
+	if _, err := Apply(db, roundTrip, nil); err != nil {
 		t.Fatal(err)
 	}
 	stored, err := model.FindResource(db, "Input", "feedback")
@@ -277,7 +349,7 @@ func TestGitHubInputValidationAndRoundTrip(t *testing.T) {
 			}
 			doc := stored.Document()
 			doc.Spec = body
-			if _, err := Apply(db, []model.Document{doc}); err == nil {
+			if _, err := Apply(db, []model.Document{doc}, nil); err == nil {
 				t.Fatal("invalid GitHub input accepted")
 			}
 		})

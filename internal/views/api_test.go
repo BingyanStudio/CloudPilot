@@ -35,7 +35,11 @@ func TestAuthenticatedConfigurationAndWebhookLifecycle(t *testing.T) {
 	if err = model.BootstrapAdmin(db, "admin", "test-password-123"); err != nil {
 		t.Fatal(err)
 	}
-	app := &controller.App{DB: db, DataDir: dir}
+	encryption, err := model.Unlock(db, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &controller.App{DB: db, DataDir: dir, Encryption: encryption}
 	e := echo.New()
 	views.Register(e, app)
 	request := func(method, path, body string, cookie *http.Cookie, headers map[string]string) *httptest.ResponseRecorder {
@@ -76,7 +80,7 @@ func TestAuthenticatedConfigurationAndWebhookLifecycle(t *testing.T) {
 	manifest := `apiVersion: cloudpilot.dev/v1alpha1
 kind: Worker
 metadata: {name: codex}
-spec: {model: gpt-5, apiKeySecretRef: MODEL_KEY}
+spec: {model: gpt-5, apiKey: private-model-key}
 ---
 apiVersion: cloudpilot.dev/v1alpha1
 kind: Workspace
@@ -103,11 +107,23 @@ spec: {pipelineRef: nightly, secretRef: FEEDBACK_TOKEN}
 	if response.Code != 200 {
 		t.Fatalf("import %d %s", response.Code, response.Body)
 	}
+	if strings.Contains(response.Body.String(), "private-model-key") || strings.Contains(response.Body.String(), "v1:") {
+		t.Fatal("import response exposed the API key")
+	}
+	response = request("POST", "/api/resources", `{"apiVersion":"cloudpilot.dev/v1alpha1","kind":"Runner","metadata":{"name":"sandbox"},"spec":{"type":"e2b","e2b":{"template":"fixture","apiKey":"private-sandbox-key"}}}`, cookie, nil)
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "private-sandbox-key") || strings.Contains(response.Body.String(), "v1:") {
+		t.Fatalf("sandbox credential save failed or exposed a secret: %d", response.Code)
+	}
+	for _, path := range []string{"/api/resources", "/api/resources/Worker/codex", "/api/resources/Runner/sandbox"} {
+		response := request("GET", path, "", cookie, nil)
+		if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "private-") || strings.Contains(response.Body.String(), "v1:") {
+			t.Fatalf("resource read failed or exposed a credential: %s, %d", path, response.Code)
+		}
+	}
 	if got := request("DELETE", "/api/resources/Worker/codex", "", cookie, nil).Code; got != 409 {
 		t.Fatalf("referenced delete status %d", got)
 	}
 	t.Setenv("FEEDBACK_TOKEN", "private-webhook-token")
-	t.Setenv("MODEL_KEY", "private-model-key")
 	if got := request("POST", "/hooks/feedback", `{"feedback":"crash"}`, nil, nil).Code; got != 401 {
 		t.Fatalf("unsigned webhook status %d", got)
 	}

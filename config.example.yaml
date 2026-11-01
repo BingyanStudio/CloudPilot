@@ -1,3 +1,5 @@
+encryption_key: "" # Set CLOUDPILOT_ENCRYPTION_KEY to a persistent, base64-encoded random 32-byte key.
+
 server:
   address: ":8080"
   secure_cookies: false

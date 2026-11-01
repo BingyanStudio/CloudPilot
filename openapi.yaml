@@ -176,7 +176,11 @@ paths:
             schema:
               $ref: '#/components/schemas/Document'
       description: Upsert by kind and metadata.name. Applies defaults and validates all resource references. Include
-        metadata.generation to reject stale edits.
+        metadata.generation to reject stale edits. Worker spec.apiKey and Runner spec.e2b.apiKey are write-only;
+        nonempty values replace the encrypted database credential; omission or an empty string preserves an existing
+        credential unless apiKeySecretRef explicitly selects a legacy environment variable. A new Worker or E2B Runner
+        requires apiKey or a legacy apiKeySecretRef. API responses never return
+        plaintext or encrypted API keys.
   /api/resources/{kind}/{name}:
     parameters:
     - $ref: '#/components/parameters/Kind'
@@ -279,7 +283,8 @@ paths:
             schema:
               $ref: '#/components/schemas/ImportRequest'
       description: Maximum 100 documents and 1 MiB YAML. Strict unknown-field validation. References can resolve
-        to objects in this batch or already stored. Absent resources are not deleted.
+        to objects in this batch or already stored. Absent resources are not deleted. API keys follow the same
+        write-only encryption and preservation rules as POST /api/resources.
   /api/config/export:
     get:
       summary: Export all resources as portable YAML
@@ -298,8 +303,9 @@ paths:
           $ref: '#/components/responses/Forbidden'
         default:
           $ref: '#/components/responses/Error'
-      description: Returns an attachment named cloudpilot-resources.yaml. Includes secret references, never resolves
-        secret values; omits metadata.generation.
+      description: Returns an attachment named cloudpilot-resources.yaml. Omits API keys, their ciphertext and
+        metadata.generation; legacy environment references remain. Reimporting into the same database preserves stored
+        API keys. Importing into a new database requires supplying API keys again.
   /hooks/{name}:
     parameters:
     - $ref: '#/components/parameters/Name'
@@ -1161,15 +1167,23 @@ components:
         endpoint:
           type: string
           description: Optional absolute HTTP(S) API base URL without embedded credentials.
+        apiKey:
+          type: string
+          format: password
+          writeOnly: true
+          maxLength: 4096
+          description: Model API key, encrypted at rest. Must be a nonblank single line of at most 4096 bytes.
+            Omit or send an empty string on update to preserve the stored key. A nonempty value replaces it and
+            removes apiKeySecretRef. Never returned in resource responses or YAML exports.
         apiKeySecretRef:
           type: string
           pattern: ^[A-Za-z_][A-Za-z0-9_]*$
-          description: Name of the server environment variable containing the API key.
+          deprecated: true
+          description: Legacy server environment variable containing the API key; optional when apiKey is supplied.
         instructions:
           type: string
       required:
       - model
-      - apiKeySecretRef
       additionalProperties: false
     Repository:
       type: object
@@ -1302,11 +1316,20 @@ components:
           type: string
           description: Optional absolute HTTP(S) management API base URL override without embedded credentials,
             query or fragment. Leave empty to use the provider default.
+        apiKey:
+          type: string
+          format: password
+          writeOnly: true
+          maxLength: 4096
+          description: Sandbox provider API key, encrypted at rest. Must be a nonblank single line of at most
+            4096 bytes. Omit or send an empty string on update to preserve the stored key. A nonempty value replaces
+            it and removes apiKeySecretRef. Never returned or injected into the sandbox as a task credential.
         apiKeySecretRef:
           type: string
           pattern: ^[A-Za-z_][A-Za-z0-9_]*$
-          description: Server environment variable containing the sandbox provider API key. The value is never
-            stored in the resource or injected into the sandbox as a task credential.
+          deprecated: true
+          description: Legacy server environment variable containing the sandbox provider API key;
+            optional when apiKey is supplied.
         template:
           type: string
           minLength: 1
@@ -1328,7 +1351,6 @@ components:
           default: pause
           description: Pause the sandbox between interactive turns and reconnect to the retained workspace on resume.
       required:
-      - apiKeySecretRef
       - template
       additionalProperties: false
     Event:

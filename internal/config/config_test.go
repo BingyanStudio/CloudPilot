@@ -7,6 +7,7 @@ import (
 )
 
 func TestLoadOverridesAndValidation(t *testing.T) {
+	t.Setenv("CLOUDPILOT_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("database:\n  driver: sqlite\n  dsn: test.db\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -35,6 +36,11 @@ func TestLoadOverridesAndValidation(t *testing.T) {
 		t.Fatal("accepted unbounded poll interval")
 	}
 	t.Setenv("CLOUDPILOT_SCHEDULER_POLL_INTERVAL", "2s")
+	t.Setenv("CLOUDPILOT_ENCRYPTION_KEY", "")
+	if _, err := Load(path); err == nil {
+		t.Fatal("accepted missing encryption key")
+	}
+	t.Setenv("CLOUDPILOT_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 	if err := os.WriteFile(path, []byte("databse:\n  driver: sqlite\n"), 0600); err != nil {
 		t.Fatal(err)
 	}

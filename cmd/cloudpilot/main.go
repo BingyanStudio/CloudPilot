@@ -52,14 +52,19 @@ func serve(ctx context.Context, path string) error {
 		return err
 	}
 	defer sqlDB.Close()
+	encryption, err := model.Unlock(db, cfg.EncryptionKey)
+	if err != nil {
+		return err
+	}
 	if err := model.BootstrapAdmin(db, cfg.Admin.Username, cfg.Admin.Password); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(cfg.Runtime.DataDir, 0700); err != nil {
 		return err
 	}
-	remote := &runtime.E2B{DB: db, DataDir: cfg.Runtime.DataDir}
+	remote := &runtime.E2B{DB: db, DataDir: cfg.Runtime.DataDir, Encryption: encryption}
 	worker := engine.Create(db, runtime.Runners{"docker": &runtime.Docker{DataDir: cfg.Runtime.DataDir}, "e2b": remote})
+	worker.Encryption = encryption
 	worker.PollInterval = cfg.Scheduler.PollInterval
 	e := echo.New()
 	e.HTTPErrorHandler = echo.DefaultHTTPErrorHandler(false)
@@ -73,7 +78,7 @@ func serve(ctx context.Context, path string) error {
 			return next(c)
 		}
 	})
-	views.Register(e, &controller.App{DB: db, Engine: worker, DataDir: cfg.Runtime.DataDir, SecureCookies: cfg.Server.SecureCookies, PublicURL: cfg.Server.PublicURL})
+	views.Register(e, &controller.App{DB: db, Engine: worker, Encryption: encryption, DataDir: cfg.Runtime.DataDir, SecureCookies: cfg.Server.SecureCookies, PublicURL: cfg.Server.PublicURL})
 	listener, err := net.Listen("tcp", cfg.Server.Address)
 	if err != nil {
 		return err

@@ -3,13 +3,13 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"crypto/cipher"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -27,6 +27,7 @@ type E2B struct {
 	DB         *gorm.DB
 	DataDir    string
 	HTTPClient *http.Client
+	Encryption cipher.AEAD
 	mu         sync.Mutex
 	active     map[uint]chan struct{}
 }
@@ -80,9 +81,9 @@ func (e *E2B) client(runner model.RunnerSpec) (*sandbox.Client, error) {
 		return nil, errors.New("E2B runner requires a database and sandbox configuration")
 	}
 	spec := runner.E2B
-	key := os.Getenv(spec.APIKeySecretRef)
-	if key == "" {
-		return nil, fmt.Errorf("sandbox secret %s is not configured", spec.APIKeySecretRef)
+	key, err := resolveAPIKey(e.Encryption, "Runner", spec.APIKey, spec.APIKeySecretRef)
+	if err != nil {
+		return nil, err
 	}
 	return &sandbox.Client{Provider: spec.Provider, Domain: spec.Domain, APIURL: spec.APIURL, APIKey: key, HTTPClient: e.HTTPClient}, nil
 }
