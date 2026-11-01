@@ -75,7 +75,7 @@ func (e *Engine) SessionInfo(runID uint) (*model.AgentSession, Capabilities, err
 	if e.started && !e.stopped {
 		active := e.active[runID]
 		caps.CanInterrupt = session.State == "running" && active != nil && active.controls != nil
-		caps.CanResume = !e.closing[runID] && (session.State == "idle" || session.State == "interrupted" || session.State == "failed")
+		caps.CanResume = !session.WorkspaceLost && !e.closing[runID] && (session.State == "idle" || session.State == "interrupted" || session.State == "failed")
 		caps.CanSend = caps.CanInterrupt || caps.CanResume
 		caps.CanClose = session.State != "closed" && !e.closing[runID] && (active == nil || !active.closing)
 	}
@@ -188,6 +188,9 @@ func (e *Engine) sessionForAction(runID uint) (model.AgentSession, error) {
 }
 
 func (e *Engine) queueTurn(session model.AgentSession, text string, userID uint) error {
+	if session.WorkspaceLost {
+		return errors.New("session workspace is unavailable; close this session and start a new run")
+	}
 	if e.closing[session.RunID] {
 		return errors.New("session cleanup is in progress")
 	}

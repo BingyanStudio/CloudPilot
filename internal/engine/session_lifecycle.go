@@ -99,6 +99,9 @@ func recoverSessions(tx *gorm.DB, now time.Time) error {
 			state = "closing"
 		}
 		message := "Scheduler restarted; resume the retained session or end it explicitly."
+		if session.WorkspaceLost {
+			message = "Session workspace is unavailable; end this session and start a new run."
+		}
 		if err := tx.Model(&session).Updates(map[string]any{"state": state, "last_error": message}).Error; err != nil {
 			return err
 		}

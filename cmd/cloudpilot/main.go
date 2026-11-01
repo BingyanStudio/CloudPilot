@@ -57,7 +57,8 @@ func serve(ctx context.Context, path string) error {
 	if err := os.MkdirAll(cfg.Runtime.DataDir, 0700); err != nil {
 		return err
 	}
-	worker := engine.Create(db, runtime.Runners{"docker": &runtime.Docker{DataDir: cfg.Runtime.DataDir}})
+	remote := &runtime.E2B{DB: db, DataDir: cfg.Runtime.DataDir}
+	worker := engine.Create(db, runtime.Runners{"docker": &runtime.Docker{DataDir: cfg.Runtime.DataDir}, "e2b": remote})
 	worker.PollInterval = cfg.Scheduler.PollInterval
 	e := echo.New()
 	e.HTTPErrorHandler = echo.DefaultHTTPErrorHandler(false)
@@ -93,6 +94,10 @@ func serve(ctx context.Context, path string) error {
 	if err := worker.Start(ctx); err != nil {
 		return err
 	}
+	maintenanceCtx, stopMaintenance := context.WithCancel(ctx)
+	maintenanceDone := make(chan struct{})
+	go func() { defer close(maintenanceDone); remote.Maintain(maintenanceCtx) }()
+	defer func() { stopMaintenance(); <-maintenanceDone }()
 	errorsCh := make(chan error, 2)
 	go func() { errorsCh <- server.Serve(listener) }()
 	if metricServer != nil {
