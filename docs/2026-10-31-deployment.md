@@ -7,7 +7,6 @@
 | 配置项 | 默认值 | 用途 |
 | --- | --- | --- |
 | `server.address` | `:8080` | HTTP API 与静态前端 |
-| `server.frontend_dir` | `frontend/dist` | Vite 构建目录 |
 | `server.secure_cookies` | `false` | HTTPS 部署时设为 `true` |
 | `server.public_url` | 空 | GitHub issue 回复中使用的 WebUI 基址，启用此 Input 时必填 |
 | `database.driver` | `sqlite` | `sqlite`、`postgres` 或 `mysql` |
@@ -19,6 +18,8 @@
 | `metrics.address` | 空 | 独立 Metrics 监听地址；留空禁用 |
 
 配置可通过 `CLOUDPILOT_` 环境变量覆盖，层级分隔符替换为下划线，例如 `CLOUDPILOT_DATABASE_DSN`、`CLOUDPILOT_SERVER_SECURE_COOKIES`。管理员密码为 12–72 字节，应使用 `CLOUDPILOT_ADMIN_PASSWORD` 注入。已存在的账号不会因为配置文件变更而重置密码。管理员会话有效期为 24 小时。
+
+前端内嵌在二进制中。升级时删除旧配置中的 `server.frontend_dir`，否则严格配置校验会拒绝启动。
 
 GitHub issue 接入需要将 `server.public_url` 或 `CLOUDPILOT_SERVER_PUBLIC_URL` 设为用户可访问的 HTTP(S) WebUI 基址，不含账号密码、查询参数或 fragment，例如 `https://cloudpilot.example.com`。Webhook 签名密钥和用于回复 issue 的 GitHub token 通过资源中的环境变量引用提供，配置步骤见 [GitHub issue 接入](2026-11-01-github-issue-input.md)。
 
@@ -68,7 +69,7 @@ Docker socket 使控制平面拥有管理 daemon 的权限。仅向受信任的�
 
 ## 开发和检查
 
-`make install` 安装锁定的 Go 与前端依赖；`make dev` 启动 API；`make frontend-dev` 启动 Vite，代理 `/api`、`/hooks`、`/health` 到 `127.0.0.1:8080`。`make build` 输出 `bin/cloudpilot` 和 `frontend/dist`。
+`make install` 安装锁定的 Go 与前端依赖；`make dev` 先构建前端再启动 API；`make frontend-dev` 启动 Vite，代理 `/api`、`/hooks`、`/health` 到 `127.0.0.1:8080`。`make build` 先生成 `frontend/dist`，再将其内嵌到 `bin/cloudpilot`；部署不需要单独复制前端目录。直接使用 `go run`、`go build` 或 `go test` 前，先执行 `make frontend-build`。
 
 `make test` 执行 Go 测试、`go vet`、前端时间线归并测试和 TypeScript/Vite 构建。CI 还执行 Go race 检测。Docker runner 的集成验证使用确定性的执行镜像，无需调用付费模型：
 

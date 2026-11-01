@@ -1,25 +1,26 @@
-.PHONY: install dev frontend-dev build test worker-image clean
+.PHONY: install dev frontend-dev frontend-build build test worker-image clean
 
 install:
 	go mod download
 	pnpm --dir frontend install --frozen-lockfile
 
-dev:
+dev: frontend-build
 	go run ./cmd/cloudpilot -config config.yaml
 
 frontend-dev:
 	pnpm --dir frontend dev
 
-build:
+frontend-build:
 	pnpm --dir frontend build
+
+build: frontend-build
 	mkdir -p bin
 	go build -trimpath -o bin/cloudpilot ./cmd/cloudpilot
 
-test:
+test: frontend-build
 	go test ./...
 	go vet ./...
 	pnpm --dir frontend test
-	pnpm --dir frontend build
 
 worker-image:
 	docker build -t cloudpilot-codex:latest deploy/worker

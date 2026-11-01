@@ -19,6 +19,8 @@ RUN --mount=type=secret,id=proxy_ca \
     go mod download
 COPY cmd/ cmd/
 COPY internal/ internal/
+COPY frontend/embed.go frontend/
+COPY --from=frontend /src/frontend/dist/ frontend/dist/
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /cloudpilot ./cmd/cloudpilot
 
@@ -28,7 +30,6 @@ RUN --mount=type=secret,id=proxy_ca \
     apk add --no-cache ca-certificates docker-cli tzdata
 WORKDIR /app
 COPY --from=backend /cloudpilot /usr/local/bin/cloudpilot
-COPY --from=frontend /src/frontend/dist ./frontend/dist
 COPY config.example.yaml ./config.example.yaml
 RUN mkdir -p /app/data/runs
 EXPOSE 8080 9090

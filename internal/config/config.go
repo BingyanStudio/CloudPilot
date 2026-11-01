@@ -14,7 +14,6 @@ import (
 type Config struct {
 	Server struct {
 		Address       string `mapstructure:"address"`
-		FrontendDir   string `mapstructure:"frontend_dir"`
 		SecureCookies bool   `mapstructure:"secure_cookies"`
 		PublicURL     string `mapstructure:"public_url"`
 	} `mapstructure:"server"`
@@ -46,7 +45,7 @@ func Load(path string) (Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 	defaults := map[string]any{
-		"server.address": ":8080", "server.frontend_dir": "frontend/dist", "server.secure_cookies": false, "server.public_url": "",
+		"server.address": ":8080", "server.secure_cookies": false, "server.public_url": "",
 		"database.driver": "sqlite", "database.dsn": "data/cloudpilot.db", "admin.username": "admin", "admin.password": "",
 		"runtime.data_dir": "data/runs", "scheduler.poll_interval": "2s", "metrics.address": "",
 	}

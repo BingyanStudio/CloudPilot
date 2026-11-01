@@ -102,7 +102,7 @@ func TestInteractiveSessionAPI(t *testing.T) {
 		}
 	})
 	e := echo.New()
-	views.Register(e, &controller.App{DB: db, Engine: scheduler, DataDir: dir}, filepath.Join(dir, "frontend"))
+	views.Register(e, &controller.App{DB: db, Engine: scheduler, DataDir: dir})
 	var cookie *http.Cookie
 	request := func(method, path, body string, authenticated bool, origin string) *httptest.ResponseRecorder {
 		t.Helper()

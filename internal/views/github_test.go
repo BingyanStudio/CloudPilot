@@ -38,7 +38,7 @@ func TestGitHubIssueInput(t *testing.T) {
 	}
 	app := &controller.App{DB: db, PublicURL: "https://pilot.example.com/"}
 	e := echo.New()
-	views.Register(e, app, t.TempDir())
+	views.Register(e, app)
 	request := func(input, body, eventType, signature string, delivery ...string) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodPost, "/hooks/"+input, strings.NewReader(body))

@@ -73,7 +73,7 @@ func serve(ctx context.Context, path string) error {
 			return next(c)
 		}
 	})
-	views.Register(e, &controller.App{DB: db, Engine: worker, DataDir: cfg.Runtime.DataDir, SecureCookies: cfg.Server.SecureCookies, PublicURL: cfg.Server.PublicURL}, cfg.Server.FrontendDir)
+	views.Register(e, &controller.App{DB: db, Engine: worker, DataDir: cfg.Runtime.DataDir, SecureCookies: cfg.Server.SecureCookies, PublicURL: cfg.Server.PublicURL})
 	listener, err := net.Listen("tcp", cfg.Server.Address)
 	if err != nil {
 		return err

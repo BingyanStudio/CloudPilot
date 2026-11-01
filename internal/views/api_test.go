@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BingyanStudio/CloudPilot/frontend"
 	"github.com/BingyanStudio/CloudPilot/internal/controller"
 	"github.com/BingyanStudio/CloudPilot/internal/model"
 	"github.com/BingyanStudio/CloudPilot/internal/resource"
@@ -35,7 +37,7 @@ func TestAuthenticatedConfigurationAndWebhookLifecycle(t *testing.T) {
 	}
 	app := &controller.App{DB: db, DataDir: dir}
 	e := echo.New()
-	views.Register(e, app, filepath.Join(dir, "frontend"))
+	views.Register(e, app)
 	request := func(method, path, body string, cookie *http.Cookie, headers map[string]string) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -209,6 +211,62 @@ spec: {pipelineRef: nightly, secretRef: FEEDBACK_TOKEN}
 	}
 	if got := request("GET", "/api/auth/me", "", cookie, nil).Code; got != 401 {
 		t.Fatalf("invalidated cookie status %d", got)
+	}
+}
+
+// TestEmbeddedFrontend checks pages and assets without a frontend directory on disk.
+func TestEmbeddedFrontend(t *testing.T) {
+	t.Chdir(t.TempDir())
+	e := echo.New()
+	views.Register(e, &controller.App{})
+	index, err := frontend.Dist.ReadFile("dist/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/", "/index.html", "/runs/123"} {
+		response := httptest.NewRecorder()
+		e.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusOK || !bytes.Equal(response.Body.Bytes(), index) || !strings.HasPrefix(response.Header().Get("Content-Type"), "text/html") {
+			t.Errorf("page %s: status %d, type %s", path, response.Code, response.Header().Get("Content-Type"))
+		}
+	}
+	if err := fs.WalkDir(frontend.Dist, "dist/assets", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		want, err := frontend.Dist.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		response := httptest.NewRecorder()
+		e.ServeHTTP(response, httptest.NewRequest(http.MethodGet, strings.TrimPrefix(path, "dist"), nil))
+		if response.Code != http.StatusOK || !bytes.Equal(response.Body.Bytes(), want) {
+			t.Errorf("asset %s: status %d or mismatched content", path, response.Code)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		path   string
+		status int
+	}{
+		{"/api", http.StatusUnauthorized},
+		{"/api/missing", http.StatusUnauthorized},
+		{"/hooks/missing", http.StatusNotFound},
+		{"/assets/missing.js", http.StatusNotFound},
+		{"/.env", http.StatusNotFound},
+		{"/assets/.private", http.StatusNotFound},
+		{"/assets/../index.html", http.StatusNotFound},
+		{"/dist/index.html", http.StatusNotFound},
+		{"/src/main.tsx", http.StatusNotFound},
+		{"/go.mod", http.StatusNotFound},
+	} {
+		response := httptest.NewRecorder()
+		e.ServeHTTP(response, httptest.NewRequest(http.MethodGet, tc.path, nil))
+		if response.Code != tc.status {
+			t.Errorf("missing or private path %s: status %d, want %d", tc.path, response.Code, tc.status)
+		}
 	}
 }
 

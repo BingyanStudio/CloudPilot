@@ -1,6 +1,5 @@
 server:
   address: ":8080"
-  frontend_dir: frontend/dist
   secure_cookies: false
   public_url: "" # Required for GitHub issue task links, e.g. https://cloudpilot.example.com
 

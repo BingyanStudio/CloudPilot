@@ -17,7 +17,7 @@ make install
 make dev
 ```
 
-另一终端执行 `make frontend-dev`，访问 <http://localhost:5173>。管理员用户名默认 `admin`；密码来自启动配置，只在首次创建账号时使用。生产构建执行 `make build`，随后运行 `./bin/cloudpilot -config config.yaml`，访问 <http://localhost:8080>。
+另一终端执行 `make frontend-dev`，访问 <http://localhost:5173>。管理员用户名默认 `admin`；密码来自启动配置，只在首次创建账号时使用。生产构建执行 `make build`，前端通过 `go:embed` 打包进 `bin/cloudpilot`，部署时只需二进制和配置文件。随后运行 `./bin/cloudpilot -config config.yaml`，访问 <http://localhost:8080>。
 
 `make test` 运行 Go 测试、静态检查与前端构建。`make worker-image` 构建 Codex 执行镜像。
 

@@ -1,17 +1,19 @@
 package views
 
 import (
+	"io/fs"
 	"net/http"
-	"os"
-	"path/filepath"
+	"path"
 	"strings"
 
+	"github.com/BingyanStudio/CloudPilot/frontend"
 	"github.com/BingyanStudio/CloudPilot/internal/controller"
 	"github.com/labstack/echo/v5"
 )
 
 // Register connects MVC controllers to the API and compiled React application.
-func Register(e *echo.Echo, app *controller.App, frontendDir string) {
+func Register(e *echo.Echo, app *controller.App) {
+	files := echo.MustSubFS(frontend.Dist, "dist")
 	e.GET("/health", app.Health)
 	e.POST("/hooks/:name", app.Webhook)
 	e.POST("/api/auth/login", app.Login, app.SameOrigin)
@@ -52,19 +54,15 @@ func Register(e *echo.Echo, app *controller.App, frontendDir string) {
 				return c.NoContent(http.StatusNotFound)
 			}
 		}
-		if relative != "" && !filepath.IsLocal(relative) {
+		if relative != "" && !fs.ValidPath(relative) {
 			return c.NoContent(http.StatusNotFound)
 		}
-		file := filepath.Join(frontendDir, relative)
-		if info, err := os.Stat(file); err == nil && info.Mode().IsRegular() {
-			return c.File(file)
+		if info, err := fs.Stat(files, relative); err == nil && info.Mode().IsRegular() {
+			return c.FileFS(relative, files)
 		}
-		if filepath.Ext(relative) != "" {
+		if path.Ext(relative) != "" {
 			return c.NoContent(http.StatusNotFound)
 		}
-		if _, err := os.Stat(filepath.Join(frontendDir, "index.html")); err != nil {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": "frontend is not built; run pnpm build in frontend"})
-		}
-		return c.File(filepath.Join(frontendDir, "index.html"))
+		return c.FileFS("index.html", files)
 	})
 }
