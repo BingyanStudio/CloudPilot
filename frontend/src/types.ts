@@ -130,13 +130,6 @@ export const kindLabels: Record<Kind, string> = {
   Workspace: '工作空间',
   Runner: '运行设施',
 };
-export const kindDescriptions: Record<Kind, string> = {
-  Input: '将外部反馈转为持久化事件，交给流水线处理。',
-  Pipeline: '为事件配置执行时间、并发限制和运行资源。',
-  Worker: '配置 Codex 使用的模型、API 端点和密钥。',
-  Workspace: '为智能体准备代码仓库、提示词、工具和 MCP 服务。',
-  Runner: '使用 Docker 或 E2B 兼容沙箱提供独立的计算环境。',
-};
 
 export function runnerSpec(type: string): Spec {
   if (type === 'e2b')

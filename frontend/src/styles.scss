@@ -305,84 +305,6 @@ pre {
   align-items: center;
   flex-shrink: 0;
 }
-.overview-banner {
-  background: #e8f0ff;
-  border: 1px solid #d0e2ff;
-  min-height: 190px;
-  padding: 28px 30px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  overflow: hidden;
-}
-.overview-banner .eyebrow {
-  color: #4589ff;
-  font-size: 9px;
-}
-.overview-banner h2 {
-  font-size: 22px;
-  font-weight: 400;
-  letter-spacing: -0.4px;
-  margin-top: 12px;
-}
-.overview-banner p {
-  font-size: 12px;
-  color: #525252;
-  margin: 10px 0 12px;
-  line-height: 1.6;
-}
-.overview-banner .cds--btn {
-  margin-left: -16px;
-}
-.flow-visual {
-  display: flex;
-  align-items: center;
-  padding: 8px 4px 8px 12px;
-}
-.flow-node-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.flow-node-group > svg {
-  color: #a6c8ff;
-  margin-right: 10px;
-}
-.flow-node {
-  background: #fff;
-  border: 1px solid #d0e2ff;
-  width: 76px;
-  height: 85px;
-  display: flex;
-  flex-direction: column;
-  padding: 13px 12px;
-  gap: 22px;
-  box-shadow: 0 4px 10px #0f62fe06;
-}
-.flow-node span {
-  color: #a6c8ff;
-  font:
-    10px 'IBM Plex Mono',
-    monospace;
-}
-.flow-node strong {
-  font:
-    11px 'IBM Plex Mono',
-    monospace;
-  color: #0f62fe;
-}
-.flow-node.node-1 {
-  background: #0f62fe;
-  border-color: #0f62fe;
-  transform: translateY(-8px);
-}
-.flow-node.node-1 strong {
-  color: white;
-}
-.flow-node.node-3 {
-  transform: translateY(8px);
-}
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -410,10 +332,6 @@ pre {
   font-weight: 300;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
-}
-.stat-caption {
-  font-size: 10px;
-  color: #8d8d8d;
 }
 .stat-card.purple .tiny-dot {
   background: #8a3ffc;
@@ -634,23 +552,6 @@ pre {
 .add-pipeline > span {
   font-size: 14px;
 }
-.add-pipeline > p {
-  margin: 0;
-}
-.page-footer {
-  margin-top: 50px;
-  border-top: 1px solid #e0e0e0;
-  padding: 20px 0 25px;
-  display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  color: #a8a8a8;
-  font-size: 10px;
-}
-.page-footer > span:first-child {
-  letter-spacing: 1.8px;
-  font-size: 9px;
-}
 .cds--inline-notification {
   max-width: none;
   margin-bottom: 20px;
@@ -801,12 +702,6 @@ pre {
   margin-top: 16px;
   font-size: 20px;
   font-weight: 400;
-}
-.config-aside > p {
-  color: #6f6f6f;
-  font-size: 12px;
-  line-height: 1.9;
-  margin-top: 16px;
 }
 .config-aside ol {
   margin: 30px 0;
@@ -1522,86 +1417,8 @@ pre {
 }
 .login-page {
   display: grid;
-  grid-template-columns: 1fr 1fr;
   min-height: 100vh;
   background: #fff;
-}
-.login-story {
-  background: #161616;
-  color: white;
-  padding: 42px 50px;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  overflow: hidden;
-}
-.login-story > .brand,
-.login-story-body,
-.login-footnote {
-  z-index: 1;
-  position: relative;
-}
-.login-story-body {
-  margin: auto 0;
-  padding: 90px 0;
-}
-.login-story .eyebrow {
-  color: #78a9ff;
-  font-size: 10px;
-}
-.login-story h1 {
-  font-size: clamp(36px, 4.1vw, 64px);
-  font-weight: 300;
-  line-height: 1.4;
-  letter-spacing: -1px;
-  margin: 24px 0;
-}
-.login-story h1 span {
-  color: #4589ff;
-}
-.login-story p {
-  color: #8d8d8d;
-  font-size: 14px;
-  line-height: 2;
-}
-.login-flow {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-top: 60px;
-  font:
-    10px 'IBM Plex Mono',
-    monospace;
-  letter-spacing: 1px;
-  color: #78a9ff;
-}
-.login-flow span {
-  border: 1px solid #393939;
-  background: #161616;
-  padding: 12px 14px;
-}
-.login-flow svg {
-  color: #525252;
-}
-.login-footnote {
-  color: #6f6f6f;
-  font-size: 10px;
-  letter-spacing: 0.3px;
-}
-.login-orbit {
-  border: 1px solid #ffffff06;
-  width: 620px;
-  height: 620px;
-  position: absolute;
-  right: -350px;
-  bottom: -260px;
-  border-radius: 50%;
-}
-.orbit-two {
-  width: 860px;
-  height: 860px;
-  right: -470px;
-  bottom: -380px;
 }
 .login-form-wrap {
   display: flex;
@@ -1614,9 +1431,8 @@ pre {
   max-width: 360px;
   width: 100%;
 }
-.login-form .eyebrow {
-  font-size: 9px;
-  color: #8d8d8d;
+.login-form .brand {
+  color: #161616;
 }
 .login-form h2 {
   font-size: 30px;
@@ -1638,13 +1454,6 @@ pre {
   width: 100%;
   max-width: none;
   margin-top: 8px;
-}
-.login-note {
-  display: block;
-  text-align: center;
-  margin-top: 24px;
-  color: #a8a8a8;
-  font-size: 10px;
 }
 .login-version {
   position: absolute;
@@ -1688,16 +1497,6 @@ pre {
     padding-left: 24px;
     padding-right: 24px;
   }
-  .flow-node {
-    width: 60px;
-    padding: 12px 8px;
-  }
-  .flow-node-group {
-    gap: 6px;
-  }
-  .flow-node-group > svg {
-    margin-right: 6px;
-  }
   .pipeline-grid,
   .artifact-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1712,12 +1511,6 @@ pre {
   .stat-card {
     padding: 20px;
   }
-  .overview-banner {
-    padding: 24px;
-  }
-  .login-story {
-    padding: 36px;
-  }
 }
 @media (max-width: 1000px) {
   .app-sidebar {
@@ -1728,12 +1521,6 @@ pre {
   }
   .brand-link {
     min-width: 165px;
-  }
-  .overview-banner {
-    align-items: flex-start;
-  }
-  .flow-visual {
-    display: none;
   }
   .config-layout {
     grid-template-columns: minmax(0, 1fr);
@@ -1749,9 +1536,6 @@ pre {
   .stat-card {
     padding: 18px 16px;
   }
-  .stat-caption {
-    font-size: 9px;
-  }
   .metadata-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1766,13 +1550,6 @@ pre {
   }
   .repository-row.environment-row {
     grid-template-columns: minmax(0, 1fr) auto;
-  }
-  .login-flow {
-    gap: 8px;
-  }
-  .login-flow span {
-    padding: 10px;
-    font-size: 9px;
   }
   .header-subtitle {
     font-size: 11px;
@@ -1832,9 +1609,6 @@ pre {
   .page-heading p {
     font-size: 12px;
   }
-  .overview-banner {
-    padding: 24px;
-  }
   .stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1px;
@@ -1845,9 +1619,6 @@ pre {
   }
   .stat-card strong {
     font-size: 32px;
-  }
-  .stat-caption {
-    font-size: 10px;
   }
   .pipeline-grid,
   .artifact-grid {
@@ -1896,9 +1667,6 @@ pre {
     flex-direction: column;
     gap: 8px;
   }
-  .page-footer > span:last-child {
-    display: none;
-  }
   .config-panel {
     padding: 18px;
   }
@@ -1930,21 +1698,8 @@ pre {
   .heading-actions {
     flex-wrap: wrap;
   }
-  .login-page {
-    grid-template-columns: 1fr;
-  }
-  .login-story {
-    padding: 28px;
-    min-height: 80px;
-  }
-  .login-story-body,
-  .login-footnote,
-  .login-orbit {
-    display: none;
-  }
   .login-form-wrap {
     padding: 56px 28px 100px;
-    min-height: calc(100vh - 82px);
   }
   .login-version {
     bottom: 28px;

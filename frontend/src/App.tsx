@@ -232,10 +232,6 @@ export default function App() {
           </div>
           <ErrorNotice error={logoutError} />
           {content}
-          <footer className="page-footer">
-            <span>CLOUDPILOT</span>
-            <span>将意图交给 Agent，让过程保持可见。</span>
-          </footer>
         </main>
       </div>
     </Theme>
@@ -272,35 +268,9 @@ function Login({ initialError, onLogin }: { initialError: string; onLogin: (user
   };
   return (
     <div className="login-page">
-      <section className="login-story">
-        <Brand />
-        <div className="login-story-body">
-          <span className="eyebrow">THE AGENT CONTROL PLANE</span>
-          <h1>
-            从反馈，
-            <br />
-            到下一次交付<span>。</span>
-          </h1>
-          <p>
-            连接你的工具、代码和智能体。
-            <br />
-            让每个任务有序开始，让每次运行清晰可见。
-          </p>
-          <div className="login-flow">
-            <span>INPUT</span>
-            <ArrowRight size={16} />
-            <span>AGENT</span>
-            <ArrowRight size={16} />
-            <span>ARTIFACT</span>
-          </div>
-        </div>
-        <span className="login-footnote">Built for work that moves forward.</span>
-        <div className="login-orbit orbit-one" />
-        <div className="login-orbit orbit-two" />
-      </section>
       <section className="login-form-wrap">
         <div className="login-form">
-          <span className="eyebrow">WELCOME TO CLOUDPILOT</span>
+          <Brand />
           <h2>登录控制台</h2>
           <p>使用初始配置中的管理员账户继续。</p>
           <ErrorNotice error={error} />
@@ -331,7 +301,6 @@ function Login({ initialError, onLogin }: { initialError: string; onLogin: (user
               {busy ? '正在登录…' : '登录'}
             </Button>
           </form>
-          <span className="login-note">账户由服务器初始 YAML 配置创建。</span>
         </div>
         <span className="login-version">CloudPilot · v0.1</span>
       </section>

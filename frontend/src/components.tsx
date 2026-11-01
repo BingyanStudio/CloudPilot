@@ -23,7 +23,7 @@ export function PageHeading({
 }: {
   eyebrow: string;
   title: string;
-  description: string;
+  description?: string;
   actions?: ReactNode;
 }) {
   return (
@@ -31,7 +31,7 @@ export function PageHeading({
       <div>
         <span className="eyebrow">{eyebrow}</span>
         <h1>{title}</h1>
-        <p>{description}</p>
+        {description && <p>{description}</p>}
       </div>
       <div className="heading-actions">{actions}</div>
     </div>
@@ -56,7 +56,7 @@ export function Empty({
   action,
 }: {
   title: string;
-  description: string;
+  description?: string;
   action?: ReactNode;
 }) {
   return (
@@ -65,7 +65,7 @@ export function Empty({
         <Cloud size={32} />
       </div>
       <h3>{title}</h3>
-      <p>{description}</p>
+      {description && <p>{description}</p>}
       {action}
     </div>
   );

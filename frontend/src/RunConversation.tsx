@@ -201,10 +201,7 @@ export default function RunConversation({
                 aria-label="对话和工具调用时间线"
               >
                 {!timeline.items.length && !turns.length ? (
-                  <Empty
-                    title="等待会话开始"
-                    description="Agent 的回复、工具调用和你的补充信息会显示在这里。"
-                  />
+                  <Empty title="等待会话开始" />
                 ) : (
                   <>
                     {ungrouped.map((item) => (

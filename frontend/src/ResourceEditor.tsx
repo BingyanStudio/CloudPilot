@@ -386,7 +386,6 @@ export default function ResourceEditor({
       <PageHeading
         eyebrow={`CONFIGURATION / ${initial.kind.toUpperCase()}`}
         title={existing ? `编辑 ${initial.metadata.name}` : `创建${kindLabels[initial.kind]}`}
-        description="表单与 YAML 使用同一份声明式资源配置。保存前将校验字段和资源引用。"
       />
       <ErrorNotice error={error} />
       <div className="editor-panel">

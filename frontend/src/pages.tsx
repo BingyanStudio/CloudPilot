@@ -49,7 +49,6 @@ import { navigate, useData } from './hooks';
 import {
   kinds,
   kindLabels,
-  kindDescriptions,
   template,
   type Artifact,
   type Event,
@@ -73,25 +72,21 @@ export function Dashboard() {
     {
       label: '等待处理',
       value: (overview.data?.events.queued ?? 0) + (overview.data?.events.waiting ?? 0),
-      caption: '队列中的反馈事件',
       color: 'blue',
     },
     {
       label: '正在运行',
       value: overview.data?.runs.running ?? 0,
-      caption: 'Agent 正在处理的任务',
       color: 'purple',
     },
     {
       label: '运行完成',
       value: overview.data?.runs.succeeded ?? 0,
-      caption: '成功结束的运行',
       color: 'green',
     },
     {
-      label: '需要关注',
+      label: '失败或中断',
       value: (overview.data?.runs.failed ?? 0) + (overview.data?.runs.interrupted ?? 0),
-      caption: '失败或中断的运行',
       color: 'red',
     },
   ];
@@ -101,7 +96,6 @@ export function Dashboard() {
       <PageHeading
         eyebrow="CONTROL PLANE"
         title="运行概览"
-        description="从一条反馈，到一次交付。在这里掌握 Agent 的每一步。"
         actions={
           <RefreshButton
             onClick={() => {
@@ -113,32 +107,6 @@ export function Dashboard() {
         }
       />
       <ErrorNotice error={overview.error || runs.error || resources.error} />
-      <div className="overview-banner">
-        <div>
-          <span className="eyebrow">YOUR AGENTS, ORCHESTRATED</span>
-          <h2>让反馈持续转化为成果。</h2>
-          <p>连接输入、安排执行，并让每次运行都有迹可循。</p>
-          <Button
-            kind="ghost"
-            renderIcon={ArrowRight}
-            size="sm"
-            onClick={() => navigate('/resources/Pipeline')}
-          >
-            管理流水线
-          </Button>
-        </div>
-        <div className="flow-visual" aria-label="Input 到 Pipeline 到 Agent 到 Artifact 的工作流">
-          {['Input', 'Pipeline', 'Agent', 'Artifact'].map((name, index) => (
-            <div className="flow-node-group" key={name}>
-              <div className={`flow-node node-${index}`}>
-                <span>0{index + 1}</span>
-                <strong>{name}</strong>
-              </div>
-              {index < 3 && <ArrowRight size={16} />}
-            </div>
-          ))}
-        </div>
-      </div>
       <div className="stat-grid">
         {stats.map((stat) => (
           <div className={`stat-card ${stat.color}`} key={stat.label}>
@@ -147,15 +115,11 @@ export function Dashboard() {
               {stat.label}
             </span>
             <strong>{overview.loading && !overview.data ? '—' : stat.value}</strong>
-            <span className="stat-caption">{stat.caption}</span>
           </div>
         ))}
       </div>
       <div className="section-line">
-        <div>
-          <h2>最近运行</h2>
-          <p className="muted">追踪执行状态与产物</p>
-        </div>
+        <h2>最近运行</h2>
         <Button kind="ghost" size="sm" renderIcon={ArrowRight} onClick={() => navigate('/runs')}>
           全部运行
         </Button>
@@ -167,8 +131,8 @@ export function Dashboard() {
           <RunTable runs={runs.data.slice(0, 6)} />
         ) : (
           <Empty
-            title="准备好启动第一条流水线"
-            description="创建运行设施、智能体和工作空间，再通过接入点接收反馈。任务开始后，运行记录会出现在这里。"
+            title="暂无运行记录"
+            description="导入资源配置后，通过接入点提交任务。"
             action={
               <Button
                 kind="tertiary"
@@ -183,10 +147,7 @@ export function Dashboard() {
         )}
       </div>
       <div className="section-line">
-        <div>
-          <h2>流水线</h2>
-          <p className="muted">调度策略与资源配置</p>
-        </div>
+        <h2>流水线</h2>
         <span className="mono muted">{activePipelines.length} CONFIGURED</span>
       </div>
       <div className="pipeline-grid">
@@ -216,7 +177,6 @@ export function Dashboard() {
           <a className="pipeline-card add-pipeline" href="#/resources/Pipeline/_new">
             <Add size={24} />
             <span>创建第一条流水线</span>
-            <p>配置何时开始，以及如何执行。</p>
           </a>
         )}
       </div>
@@ -261,7 +221,6 @@ export function Resources({ kind, name }: { kind: Kind; name?: string }) {
       return (
         <Empty
           title="资源不存在"
-          description="该资源可能已被删除，请返回资源列表。"
           action={<Button onClick={() => navigate(`/resources/${kind}`)}>返回列表</Button>}
         />
       );
@@ -297,7 +256,6 @@ export function Resources({ kind, name }: { kind: Kind; name?: string }) {
       <PageHeading
         eyebrow={`RESOURCES / ${kind.toUpperCase()}`}
         title={kindLabels[kind]}
-        description={kindDescriptions[kind]}
         actions={
           <>
             <Button
@@ -341,7 +299,6 @@ export function Resources({ kind, name }: { kind: Kind; name?: string }) {
         ) : !items.length ? (
           <Empty
             title={search ? '没有匹配的资源' : `尚未配置${kindLabels[kind]}`}
-            description={search ? '试试其他关键词。' : kindDescriptions[kind]}
             action={
               !search && (
                 <Button
@@ -547,7 +504,6 @@ export function Configuration() {
       <PageHeading
         eyebrow="DECLARATIVE CONFIGURATION"
         title="配置中心"
-        description="将资源作为代码管理。在界面与 YAML 之间自由切换。"
         actions={
           <Button kind="tertiary" renderIcon={Download} onClick={() => void exportYAML()}>
             导出所有资源
@@ -589,7 +545,7 @@ export function Configuration() {
             className="code-input"
             id="config-yaml"
             labelText="资源清单"
-            helperText="使用 --- 分隔多个资源。一次导入会在同一事务中校验并应用。"
+            helperText="使用 --- 分隔多个资源。"
             rows={22}
             spellCheck={false}
             value={yaml}
@@ -619,9 +575,7 @@ export function Configuration() {
           </div>
         </div>
         <aside className="config-aside">
-          <span className="eyebrow">ONE SOURCE OF TRUTH</span>
-          <h3>一份配置，完整工作流。</h3>
-          <p>输入、流水线、智能体、工作空间和运行设施采用相同的资源结构。</p>
+          <h3>配置提示</h3>
           <ol>
             <li>
               <strong>声明资源</strong>
@@ -640,7 +594,6 @@ export function Configuration() {
             <strong>接入点凭据与 API 密钥加密保存</strong>
             <p>
               可在资源编辑器中直接填写；导出不包含密钥，向新环境导入时需重新填写。
-              工作空间环境变量支持逐行编辑，密钥引用仍对应已有的服务器环境变量。
             </p>
           </div>
         </aside>
@@ -681,7 +634,7 @@ export function Events() {
       <PageHeading
         eyebrow="OBSERVABILITY / EVENTS"
         title="事件队列"
-        description="查看已接收的反馈、排队状态与处理尝试。每 5 秒自动更新，最多显示最近 200 条。"
+        description="每 5 秒更新 · 最近 200 条"
         actions={<RefreshButton onClick={refresh} />}
       />
       <ErrorNotice error={error || actionError || resources.error} />
@@ -751,14 +704,7 @@ export function Events() {
             </Table>
           </div>
         ) : (
-          <Empty
-            title="暂无事件"
-            description={
-              status || pipeline
-                ? '当前筛选条件下没有事件。'
-                : '将应用反馈发送到配置好的 Webhook，事件将在这里入队。'
-            }
-          />
+          <Empty title={status || pipeline ? '没有匹配的事件' : '暂无事件'} />
         )}
       </div>
     </>
@@ -778,7 +724,7 @@ export function EventPage({ id }: { id: string }) {
       <PageHeading
         eyebrow={`EVENT / ${event.pipelineName}`}
         title={`EVT-${String(event.id).padStart(4, '0')}`}
-        description="跟踪任务从排队到交付的进展，点击运行记录查看 Agent 会话与产物。每 5 秒自动更新。"
+        description="每 5 秒更新"
         actions={
           <>
             <Status value={event.status} />
@@ -801,10 +747,7 @@ export function EventPage({ id }: { id: string }) {
         {runs.length ? (
           <RunTable runs={runs} />
         ) : (
-          <Empty
-            title="等待调度"
-            description="任务已接收。流水线开始处理后，运行记录会自动出现在这里。"
-          />
+          <Empty title="等待调度" />
         )}
       </div>
       <details className="event-payload" open>
@@ -906,7 +849,7 @@ export function Runs() {
       <PageHeading
         eyebrow="OBSERVABILITY / RUNS"
         title="运行记录"
-        description="每一次执行都有独立的日志、状态和产物。每 5 秒自动更新，最多显示最近 200 条。"
+        description="每 5 秒更新 · 最近 200 条"
         actions={<RefreshButton onClick={refresh} />}
       />
       <ErrorNotice error={error || resources.error} />
@@ -923,14 +866,7 @@ export function Runs() {
         ) : data?.length ? (
           <RunTable runs={data} />
         ) : (
-          <Empty
-            title="暂无运行记录"
-            description={
-              status || pipeline
-                ? '当前筛选条件下没有运行记录。'
-                : '事件开始处理后，可以在这里查看执行过程。'
-            }
-          />
+          <Empty title={status || pipeline ? '没有匹配的运行记录' : '暂无运行记录'} />
         )}
       </div>
     </>
@@ -1128,10 +1064,7 @@ export function RunPage({ id }: { id: string }) {
         rawLogs
       )}
       <div className="section-line">
-        <div>
-          <h2>运行产物</h2>
-          <p className="muted">代码变更、构建产物和处理结论</p>
-        </div>
+        <h2>运行产物</h2>
         <span className="mono muted">{artifacts.length} ARTIFACTS</span>
       </div>
       <ArtifactGrid artifacts={artifacts} />
@@ -1165,7 +1098,7 @@ export function Artifacts() {
       <PageHeading
         eyebrow="DELIVERY / ARTIFACTS"
         title="产物中心"
-        description="集中查看 Agent 交付的 Issue、PR、文件与处理结论，最多显示最近 200 条。"
+        description="最近 200 条"
         actions={<RefreshButton onClick={refresh} />}
       />
       <ErrorNotice error={error} />
@@ -1204,10 +1137,7 @@ function ArtifactGrid({
   if (!artifacts.length)
     return (
       <div className="panel">
-        <Empty
-          title="暂无产物"
-          description="运行产生的 PR、Issue、APK 等文件或说明文字会在这里显示。"
-        />
+        <Empty title="暂无产物" />
       </div>
     );
   return (
@@ -1317,7 +1247,6 @@ export function NotFound() {
   return (
     <Empty
       title="页面不存在"
-      description="请从左侧导航选择一个页面。"
       action={<Button onClick={() => navigate('/')}>回到概览</Button>}
     />
   );
