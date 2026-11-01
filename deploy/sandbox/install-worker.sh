@@ -2,7 +2,7 @@
 set -eu
 
 apt-get update
-apt-get install -y --no-install-recommends git ca-certificates openssh-client curl
+apt-get install -y --no-install-recommends bash coreutils findutils tar git ca-certificates openssh-client curl
 npm install --global --no-audit --no-fund @openai/codex@0.166.0
 
 gh_version=2.103.3

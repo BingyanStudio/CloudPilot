@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+if [ "${1:-}" = --help ]; then
+    exec node "$(dirname "$0")/build.mjs" "$@"
+fi
+
 builder_directory="$(mktemp -d)"
 trap 'rm -rf "$builder_directory"' EXIT
 npm install --prefix "$builder_directory" --cache "$builder_directory/npm-cache" --no-audit --no-fund novita-sandbox@2.1.2 >&2
