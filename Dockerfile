@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:24-alpine AS frontend
+FROM node:lts-alpine AS frontend
 WORKDIR /src/frontend
 RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
@@ -11,7 +11,7 @@ RUN --mount=type=secret,id=proxy_ca \
 COPY frontend/ ./
 RUN pnpm build
 
-FROM golang:1.27.3-alpine AS backend
+FROM golang:alpine AS backend
 WORKDIR /src
 RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export SSL_CERT_FILE=/run/secrets/proxy_ca; fi; \
@@ -25,7 +25,7 @@ COPY internal/ internal/
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /cloudpilot ./cmd/cloudpilot
 
-FROM alpine:3.24
+FROM alpine:latest
 RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export SSL_CERT_FILE=/run/secrets/proxy_ca; fi; \
     apk add --no-cache ca-certificates docker-cli tzdata
