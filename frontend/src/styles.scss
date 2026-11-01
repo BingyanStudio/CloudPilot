@@ -668,6 +668,21 @@ pre {
   flex-shrink: 0;
   font-weight: 500;
 }
+.help-note.webhook-help {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 0;
+  min-width: 0;
+}
+.webhook-help code {
+  display: block;
+  max-width: 100%;
+  padding: 10px 12px;
+  background: var(--cds-layer-hover);
+  color: var(--cds-text-primary);
+  overflow-wrap: anywhere;
+}
 .editor-panel {
   background: #fff;
   border: 1px solid #e0e0e0;

@@ -240,10 +240,10 @@ export default function ResourceEditor({
     <Toggle
       id="resource-paused"
       labelText="接收与调度"
-      labelA="已启用"
-      labelB="已暂停"
-      toggled={Boolean(spec.paused)}
-      onToggle={(value) => set('paused', value)}
+      labelA="已暂停"
+      labelB="已启用"
+      toggled={!spec.paused}
+      onToggle={(enabled) => set('paused', !enabled)}
     />
   );
   const environmentFields = (key: 'env' | 'secretEnv', label: string, helper: string) => {
@@ -483,7 +483,7 @@ export default function ResourceEditor({
                               onChange={(event) => setGitHub('labels', event.target.value.split('\n'))}
                               helperText="每行一个标签。Assignee 或 Label 至少填写一项，满足任意一个条件即可触发。"
                             />
-                            <div className="full-width help-note">
+                            <div className="full-width help-note webhook-help">
                               <strong>连接 GitHub Webhook</strong>
                               <p>
                                 在仓库 Webhook 中填写下方地址，选择 application/json 和 Issues 事件，
