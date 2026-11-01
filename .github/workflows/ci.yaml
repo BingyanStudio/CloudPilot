@@ -19,8 +19,9 @@ jobs:
           cache: true
       - run: go mod download
       - run: go test -race ./...
+      - run: CGO_ENABLED=0 go test ./...
       - run: go vet ./...
-      - run: go build ./cmd/cloudpilot
+      - run: CGO_ENABLED=0 go build ./cmd/cloudpilot
 
   frontend:
     runs-on: ubuntu-latest

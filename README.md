@@ -2,7 +2,7 @@
 
 可插拔的 Agent 调度与观测平台。Webhook 接收事件，Pipeline 管理队列和调度，Worker 定义 Agent，Workspace 准备仓库、提示词和工具，Runner 提供执行环境，Artifact 保存运行产物。
 
-- 后端：Go、Echo v5、MVC、GORM、Viper；支持 SQLite、PostgreSQL 和 MySQL。
+- 后端：Go、Echo v5、MVC、GORM、Viper；支持 SQLite、PostgreSQL 和 MySQL。SQLite 使用 `github.com/glebarez/sqlite` 纯 Go 驱动，无需 CGO。
 - 前端：React、TypeScript、Carbon Design System、Vite、pnpm，代码位于 `frontend/`。
 - 已适配：Webhook input、Codex worker、Docker 与 E2B 兼容 runner（含 Novita）。资源支持网页编辑与声明式 YAML 导入导出。
 

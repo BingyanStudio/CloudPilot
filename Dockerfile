@@ -13,9 +13,6 @@ RUN pnpm build
 
 FROM golang:alpine AS backend
 WORKDIR /src
-RUN --mount=type=secret,id=proxy_ca \
-    if [ -f /run/secrets/proxy_ca ]; then export SSL_CERT_FILE=/run/secrets/proxy_ca; fi; \
-    apk add --no-cache build-base
 COPY go.mod go.sum ./
 RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export SSL_CERT_FILE=/run/secrets/proxy_ca; fi; \
@@ -23,7 +20,7 @@ RUN --mount=type=secret,id=proxy_ca \
 COPY cmd/ cmd/
 COPY internal/ internal/
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /cloudpilot ./cmd/cloudpilot
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /cloudpilot ./cmd/cloudpilot
 
 FROM alpine:latest
 RUN --mount=type=secret,id=proxy_ca \

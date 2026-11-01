@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -30,7 +30,7 @@ func Open(driver, dsn string) (*gorm.DB, error) {
 		if strings.Contains(dsn, "?") {
 			sep = "&"
 		}
-		dialect = sqlite.Open(dsn + sep + "_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on")
+		dialect = sqlite.Open(dsn + sep + "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
 	case "postgres", "postgresql":
 		dialect = postgres.Open(dsn)
 	case "mysql":
