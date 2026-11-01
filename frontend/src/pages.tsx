@@ -53,6 +53,8 @@ import {
   template,
   type Artifact,
   type Event,
+  type EventDetail,
+  type GitHubInput,
   type Kind,
   type Overview,
   type Resource,
@@ -226,7 +228,9 @@ function resourceSummary(item: Resource): string {
   const spec = item.spec;
   switch (item.kind) {
     case 'Input':
-      return `Webhook → ${spec.pipelineRef}`;
+      return spec.type === 'github_issue'
+        ? `GitHub issue · ${(spec.github as GitHubInput)?.repository || ''} → ${spec.pipelineRef}`
+        : `Webhook → ${spec.pipelineRef}`;
     case 'Pipeline':
       return `${spec.schedule || '即时调度'} · ${spec.timezone || 'Asia/Shanghai'} · 并发 ${spec.concurrency}`;
     case 'Worker':
@@ -372,7 +376,9 @@ export function Resources({ kind, name }: { kind: Kind; name?: string }) {
                     <TableCell>
                       <span className="resource-description">{resourceSummary(item)}</span>
                       {kind === 'Input' && (
-                        <code className="cell-subtitle">/hooks/{item.metadata.name}</code>
+                        <code className="cell-subtitle">
+                          {window.location.origin}/hooks/{item.metadata.name}
+                        </code>
                       )}
                     </TableCell>
                     <TableCell>
@@ -456,10 +462,14 @@ export function Resources({ kind, name }: { kind: Kind; name?: string }) {
       </div>
       {kind === 'Input' && (
         <div className="help-note">
-          <strong>调用 Webhook</strong>
+          <strong>连接接入点</strong>
           <p>
-            向接入点发送 JSON，并通过 Authorization: Bearer 携带密钥。使用 Idempotency-Key
+            通用 Webhook 接收 JSON，通过 Authorization: Bearer 携带密钥。使用 Idempotency-Key
             防止反馈被重复入队。
+          </p>
+          <p>
+            GitHub issue 接入点使用 GitHub Webhook 签名认证。在仓库中订阅 Issues 事件，
+            符合 Assignee 或 Label 条件的 issue 会创建任务，并收到包含任务查看链接的回复。
           </p>
         </div>
       )}
@@ -640,7 +650,6 @@ export function Events() {
   if (pipeline) query.set('pipeline', pipeline);
   const { data, error, loading, refresh } = useData<Event[]>(`/api/events?${query}`, 5000);
   const resources = useData<Resource[]>('/api/resources?kind=Pipeline');
-  const [selected, setSelected] = useState<Event | null>(null);
   const [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState(false);
   const retry = async (event: Event) => {
@@ -649,7 +658,6 @@ export function Events() {
     try {
       await post(`/api/events/${event.id}/retry`);
       refresh();
-      setSelected(null);
     } catch (cause) {
       const detail = message(cause);
       setActionError(
@@ -697,9 +705,9 @@ export function Events() {
                 {data.map((event) => (
                   <TableRow key={event.id}>
                     <TableCell>
-                      <button className="table-link mono" onClick={() => setSelected(event)}>
+                      <a className="table-link mono" href={`#/events/${event.id}`}>
                         EVT-{String(event.id).padStart(4, '0')}
-                      </button>
+                      </a>
                     </TableCell>
                     <TableCell>{event.inputName}</TableCell>
                     <TableCell>{event.pipelineName}</TableCell>
@@ -724,7 +732,7 @@ export function Events() {
                           kind="ghost"
                           size="sm"
                           renderIcon={ArrowRight}
-                          onClick={() => setSelected(event)}
+                          onClick={() => navigate(`/events/${event.id}`)}
                         >
                           详情
                         </Button>
@@ -746,24 +754,56 @@ export function Events() {
           />
         )}
       </div>
-      <Modal
-        open={Boolean(selected)}
-        passiveModal
-        modalHeading={`事件 EVT-${selected?.id ?? ''}`}
-        size="lg"
-        onRequestClose={() => setSelected(null)}
-      >
-        <div className="metadata-grid">
-          <MetadataItem label="接入点">{selected?.inputName}</MetadataItem>
-          <MetadataItem label="流水线">{selected?.pipelineName}</MetadataItem>
-          <MetadataItem label="状态">
-            <Status value={selected?.status ?? ''} />
-          </MetadataItem>
-          <MetadataItem label="接收时间 · 上海">{formatTime(selected?.createdAt)}</MetadataItem>
-        </div>
-        <h3 className="payload-title">原始反馈</h3>
-        <pre className="payload-box">{JSON.stringify(selected?.payload, null, 2)}</pre>
-      </Modal>
+    </>
+  );
+}
+
+export function EventPage({ id }: { id: string }) {
+  const { data, error, loading, refresh } = useData<EventDetail>(`/api/events/${id}`, 5000);
+  if (loading && !data) return <LoadingState />;
+  if (!data) return <ErrorNotice error={error || '事件不存在。'} />;
+  const { event, runs } = data;
+  return (
+    <>
+      <a className="back-link" href="#/events">
+        ← 返回事件队列
+      </a>
+      <PageHeading
+        eyebrow={`EVENT / ${event.pipelineName}`}
+        title={`EVT-${String(event.id).padStart(4, '0')}`}
+        description="跟踪任务从排队到交付的进展，点击运行记录查看 Agent 会话与产物。每 5 秒自动更新。"
+        actions={
+          <>
+            <Status value={event.status} />
+            <RefreshButton onClick={refresh} />
+          </>
+        }
+      />
+      <ErrorNotice error={error} />
+      <div className="metadata-grid">
+        <MetadataItem label="接入点">{event.inputName}</MetadataItem>
+        <MetadataItem label="流水线">{event.pipelineName}</MetadataItem>
+        <MetadataItem label="尝试次数">{event.attempts}</MetadataItem>
+        <MetadataItem label="接收时间 · 上海">{formatTime(event.createdAt)}</MetadataItem>
+      </div>
+      <div className="section-line">
+        <h2>运行记录</h2>
+        <span className="mono muted">{runs.length} RUNS</span>
+      </div>
+      <div className="panel">
+        {runs.length ? (
+          <RunTable runs={runs} />
+        ) : (
+          <Empty
+            title="等待调度"
+            description="任务已接收。流水线开始处理后，运行记录会自动出现在这里。"
+          />
+        )}
+      </div>
+      <details className="event-payload" open>
+        <summary>任务上下文 · 原始事件</summary>
+        <pre className="payload-box">{JSON.stringify(event.payload, null, 2)}</pre>
+      </details>
     </>
   );
 }

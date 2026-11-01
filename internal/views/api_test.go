@@ -174,6 +174,36 @@ spec: {pipelineRef: nightly, secretRef: FEEDBACK_TOKEN}
 			t.Fatal("legacy run advertised interactive actions")
 		}
 	}
+	if got := request("GET", fmt.Sprintf("/api/events/%d", original.ID), "", nil, nil).Code; got != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated event detail status %d", got)
+	}
+	other := model.Event{InputName: "other", PipelineName: "nightly", Status: "queued", Payload: json.RawMessage(`{}`)}
+	if err := db.Create(&other).Error; err != nil {
+		t.Fatal(err)
+	}
+	later := model.Run{EventID: original.ID, PipelineName: original.PipelineName, Status: "failed", Attempt: 2}
+	if err := db.Create(&later).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		event model.Event
+		count int
+	}{{original, 2}, {other, 0}} {
+		response := request("GET", fmt.Sprintf("/api/events/%d", tc.event.ID), "", cookie, nil)
+		var detail struct {
+			Event model.Event `json:"event"`
+			Runs  []model.Run `json:"runs"`
+		}
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &detail) != nil || detail.Event.ID != tc.event.ID || detail.Runs == nil || len(detail.Runs) != tc.count {
+			t.Fatalf("invalid event detail: %d %s", response.Code, response.Body)
+		}
+		if tc.count > 0 && (detail.Runs[0].ID != later.ID || !bytes.Equal(detail.Event.Payload, original.Payload)) {
+			t.Fatalf("event detail lost payload or latest-first attempts: %s", response.Body)
+		}
+	}
+	if got := request("GET", "/api/events/999999", "", cookie, nil).Code; got != http.StatusNotFound {
+		t.Fatalf("missing event status %d", got)
+	}
 	if got := request("POST", "/api/auth/logout", "", cookie, nil).Code; got != 204 {
 		t.Fatalf("logout status %d", got)
 	}

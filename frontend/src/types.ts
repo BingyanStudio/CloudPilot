@@ -18,6 +18,16 @@ export interface Event {
   createdAt: string;
   updatedAt: string;
 }
+export interface EventDetail {
+  event: Event;
+  runs: Run[];
+}
+export interface GitHubInput {
+  repository: string;
+  tokenSecretRef: string;
+  assignees: string[];
+  labels: string[];
+}
 export interface Run {
   id: number;
   eventId: number;

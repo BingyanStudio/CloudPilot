@@ -27,6 +27,7 @@ func Register(e *echo.Echo, app *controller.App, frontendDir string) {
 	api.POST("/config/import", app.Import)
 	api.GET("/config/export", app.Export)
 	api.GET("/events", app.Events)
+	api.GET("/events/:id", app.Event)
 	api.POST("/events/:id/retry", app.Retry)
 	api.POST("/pipelines/:name/trigger", app.Trigger)
 	api.GET("/runs", app.Runs)
