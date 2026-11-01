@@ -8,7 +8,7 @@ flowchart LR
   E --> P[Pipeline · schedule / concurrency]
   P --> W[Worker · Codex / model / endpoint]
   P --> S[Workspace · repos / prompt / tools / MCP]
-  P --> R[Runner · Docker / limits]
+  P --> R[Runner · Docker / E2B sandbox]
   W --> X[Run]
   S --> X
   R --> X
@@ -28,11 +28,13 @@ flowchart LR
 | `Pipeline` | `workerRef`、`workspaceRef`、`runnerRef`、`schedule`、`timezone`、`concurrency`、`paused`、`maxRetries`、`timeoutSeconds` |
 | `Worker` | `type: codex`、`model`、`endpoint`、`apiKeySecretRef`、`instructions` |
 | `Workspace` | `repositories`、`prompt`、`tools`、`mcpServers`、`env`、`secretEnv` |
-| `Runner` | `type: docker`、`image`、`network`、`memory`、`cpus` |
+| `Runner` | `type: docker` 配置 `image`、`network`、`memory`、`cpus`；`type: e2b` 配置 `e2b` 服务商与模板选项 |
 
 ## 从反馈到执行
 
 修改 [夜间反馈示例](../examples/nightly-feedback.yaml) 的仓库地址和可用模型，通过管理界面导入。将 `FEEDBACK_WEBHOOK_SECRET`、`OPENAI_API_KEY` 和 `GITHUB_TOKEN` 配置在 CloudPilot 服务环境中。该示例显式引用 GitHub token，用于仓库认证和 issue、PR 操作；若只分析公开仓库，可删除 Workspace 的 `secretEnv` 映射。不删除该映射时，缺少 GitHub token 会使运行失败。
+
+远程 sandbox 可从 [Novita 示例](../examples/novita.yaml) 开始，模板构建和 Runner 配置见 [E2B / Novita runner](2026-11-01-e2b-runner.md)。
 
 `secretRef`、`apiKeySecretRef` 和 `secretEnv` 的值都是服务进程环境变量的名字；YAML 导出保留引用，不解析或返回密钥值。
 
@@ -50,17 +52,17 @@ Webhook 接受最多 1 MiB 的任意有效 JSON，认证成功后持久化为 Ev
 
 示例 Pipeline 每天上海时间 20:00 释放当时已排队的事件，并最多同时运行两个任务。这个时间点之后的新事件等待下一次定时触发。`schedule` 为空时即时调度；否则使用五字段 cron，时区由独立的 IANA `timezone` 指定，默认 `Asia/Shanghai`。手动触发会释放当前待处理批次。`paused` 阻止新的调度，不中断已经运行的任务。
 
-每个初始执行尝试生成独立 Run，关联原 Event。Codex + Docker 在 Run 内保留交互式会话，人工补充或继续会创建新的轮次；已建立 thread 的执行在中断、超时或失败后保留现场，等待人工继续。首次执行在 thread 建立前失败且空会话清理成功时，以及批处理适配器失败时，按 `maxRetries` 重试，默认不自动重试。人工追加的轮次不自动重放。`timeoutSeconds` 默认 3600，允许 10–86400 秒；交互式执行按轮次计时。`concurrency` 默认为 1，允许 1–32，空闲会话不占并发额度。关闭会话后，可将失败、取消或中断的 Event 重新入队，创建新的 Run。
+每个初始执行尝试生成独立 Run，关联原 Event。Codex 通过 Docker 或 E2B runner 在 Run 内保留交互式会话，人工补充或继续会创建新的轮次；已建立 thread 的执行在中断、超时或失败后保留现场，等待人工继续。首次执行在 thread 建立前失败且空会话清理成功时，以及批处理适配器失败时，按 `maxRetries` 重试，默认不自动重试。人工追加的轮次不自动重放。`timeoutSeconds` 默认 3600，允许 10–86400 秒；交互式执行按轮次计时。`concurrency` 默认为 1，允许 1–32，空闲会话不占并发额度。关闭会话后，可将失败、取消或中断的 Event 重新入队，创建新的 Run。
 
 运行详情提供对话与工具时间线、人工补充、中断、继续和结束任务，具体语义见 [Agent 会话与人工介入](2026-10-31-interactive-sessions.md)。日志和时间线使用各自的游标轮询；事件、运行与产物列表显示最新 200 条记录。
 
 ## Workspace 和 Codex
 
-Runner 在独立容器的 `/workspace` 下检出仓库。仓库条目包含 `url`、可选 `ref`、相对 `path`；路径不得越界或相互覆盖。`tools` 是按顺序执行的 shell setup 命令，可用于准备构建工具或项目依赖。交互式会话只在首次准备工作目录时检出仓库和执行 setup，后续轮次继承已有文件修改。预装大型依赖时，建议基于 `deploy/worker` 构建团队自己的镜像。
+Runner 在独立容器或 sandbox 的 `/workspace` 下检出仓库。仓库条目包含 `url`、可选 `ref`、相对 `path`；路径不得越界或相互覆盖。`tools` 是按顺序执行的 shell setup 命令，可用于准备构建工具或项目依赖。交互式会话只在首次准备工作目录时检出仓库和执行 setup，后续轮次继承已有文件修改。预装大型依赖时，可基于 [deploy/worker](../deploy/worker) 构建 Docker 镜像，或使用 [deploy/sandbox](../deploy/sandbox) 的 SDK 脚本构建 Novita 模板。
 
-`env` 配置非敏感环境变量；`secretEnv` 将容器内变量名映射为服务环境中的密钥变量名，例如 `GH_TOKEN: GITHUB_TOKEN`。`mcpServers` 每项配置 `command` 或 HTTP(S) `url` 其中之一；stdio 服务还可设置 `args`、`env`。通过 `secretEnv` 向 MCP 子进程传递所需凭据，避免将密钥明文写入资源。
+`env` 配置非敏感环境变量；`secretEnv` 将执行环境内变量名映射为服务环境中的密钥变量名，例如 `GH_TOKEN: GITHUB_TOKEN`。`mcpServers` 每项配置 `command` 或 HTTP(S) `url` 其中之一；stdio 服务还可设置 `args`、`env`。通过 `secretEnv` 向 MCP 子进程传递所需凭据，避免将密钥明文写入资源。
 
-默认执行镜像包含 Git、GitHub CLI 和 Codex。提供 `GH_TOKEN` 或 `GITHUB_TOKEN` 时，GitHub HTTPS 克隆通过限定于 `github.com` 的凭据 helper 认证；私有仓库、issue 和 PR 操作需要该 token 对目标仓库具有对应权限。
+仓库提供的执行镜像和 sandbox 模板均包含 Git、GitHub CLI 和 Codex。提供 `GH_TOKEN` 或 `GITHUB_TOKEN` 时，GitHub HTTPS 克隆通过限定于 `github.com` 的凭据 helper 认证；私有仓库、issue 和 PR 操作需要该 token 对目标仓库具有对应权限。
 
 Worker 提供模型、API endpoint、API key 引用及通用指令。Workspace 提供项目提示词。每次 Run 会把这些内容和反馈事件交给 Codex；是否创建 issue、PR 或构建 APK 由任务、仓库工具链和可用权限共同决定。CloudPilot 负责执行和收集，不能保证 Agent 每次都产生所有类型的产物。
 

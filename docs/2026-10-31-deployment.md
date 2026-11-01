@@ -45,7 +45,9 @@ docker compose up --build -d
 
 管理界面位于 <http://localhost:8080>。Compose 默认只向本机暴露 8080 和 9090；Metrics 使用独立端口 <http://localhost:9090/metrics>。数据库和文件产物持久化在 `cloudpilot-data` 卷。配置文件通过只读挂载提供；修改后重启服务。
 
-服务容器需要 Docker CLI 和 `/var/run/docker.sock` 才能创建执行容器。执行容器使用 `docker cp` 接收工作配置、返回产物，无需映射服务容器内部的主机路径，也不挂载 Docker socket。自定义 `DOCKER_HOST` 时应确保服务能访问对应 daemon；运行镜像必须存在于该 daemon 或可从镜像仓库拉取。
+Compose 默认挂载 Docker socket，Docker runner 使用 Docker CLI 和 `/var/run/docker.sock` 创建执行容器。执行容器使用 `docker cp` 接收工作配置、返回产物，无需映射服务容器内部的主机路径，也不挂载 Docker socket。自定义 `DOCKER_HOST` 时应确保服务能访问对应 daemon；运行镜像必须存在于该 daemon 或可从镜像仓库拉取。
+
+仅使用 E2B runner 时，CloudPilot 执行任务不需要 Docker daemon、CLI 或 socket，可直接运行服务二进制。若仍使用 Compose 托管服务，Compose 本身需要 Docker，但可移除 socket 挂载；远程模板和密钥配置见 [E2B / Novita runner](2026-11-01-e2b-runner.md)。
 
 需要自定义代理 CA 的构建环境可向两个 Dockerfile 传入可选的 BuildKit secret：`docker build --secret id=proxy_ca,src=/path/to/ca.pem ...`。CA 仅在依赖安装步骤挂载，不写入镜像层；继续保留环境提供的代理设置和 TLS 验证。
 
@@ -55,11 +57,11 @@ Docker socket 使控制平面拥有管理 daemon 的权限。仅向受信任的�
 
 将服务放在 HTTPS 反向代理后，设置 `server.secure_cookies: true`，保留原始 `Host`。浏览器写请求会校验 `Origin` 与请求 `Host`，前端和 API 应部署在同一站点。代理只应转发受信任的客户端地址头。首次设置账号后，避免把启动配置、`.env` 或数据库文件提交到仓库。
 
-数据库保存配置、事件、运行记录、日志、会话、轮次、结构化时间线和产物元信息；`runtime.data_dir` 保存文件产物及部署标识。交互式 Agent 的仓库和 Codex 会话状态另存于 runner daemon 的 Docker 命名卷中，不在 Compose 的 `cloudpilot-data` 卷内。需要恢复人工继续能力时，备份必须覆盖数据库、完整数据目录和这些会话卷，并恢复到相同的部署标识。SQLite 在线备份应使用 SQLite 的备份机制；复制工作目录或会话卷前应停止活动轮次。
+数据库保存配置、事件、运行记录、日志、会话、轮次、远程实例记录、结构化时间线和产物元信息；`runtime.data_dir` 保存文件产物及部署标识。备份应覆盖数据库和完整数据目录。Docker 会话的仓库与 Codex 状态另存于 runner daemon 的命名卷中，不在 Compose 的 `cloudpilot-data` 卷内，需同时备份这些卷及 `runtime.data_dir/runtime-id`。E2B 会话状态保存在远端 sandbox，恢复需保留对应实例、服务商访问凭据及 `runtime.data_dir/e2b/runtime-id`；数据库和本地数据目录的备份不包含远端文件。SQLite 在线备份应使用 SQLite 的备份机制；复制工作目录或会话卷前应停止活动轮次。
 
-当前版本只运行一个调度服务实例。多个实例共享数据库可能超出 Pipeline 并发配额，尚未提供 leader election 或分布式租约。停止服务会中断活动轮次并保留交互式会话卷；重启后先清理遗留执行容器，再将中断的交互式轮次置为可人工继续的状态。批处理执行仍按原重试策略恢复。
+当前版本只运行一个调度服务实例。多个实例共享数据库可能超出 Pipeline 并发配额，尚未提供 leader election 或分布式租约。停止服务会中断活动轮次并保留交互式工作目录；重启后由各 runner 核对并清理遗留执行环境，再将中断的交互式轮次标记为 `interrupted`，工作目录仍在时可人工继续。批处理执行仍按原重试策略恢复。
 
-空闲和中断会话不占 Pipeline 并发额度，但继续占用卷空间。通过运行详情的“结束任务”清理不再需要的会话；清理失败会保留错误并允许重试。自然完成一轮不会自动删除会话卷，详情见 [Agent 会话与人工介入](2026-10-31-interactive-sessions.md)。
+空闲和中断会话不占 Pipeline 并发额度，但继续占用 Docker 卷空间或远端 sandbox 存储。通过运行详情的“结束任务”清理不再需要的会话；清理失败会保留错误并允许重试。自然完成一轮不会自动删除会话工作目录，详情见 [Agent 会话与人工介入](2026-10-31-interactive-sessions.md)，远端存储费用与清理见 [E2B / Novita runner](2026-11-01-e2b-runner.md)。
 
 ## 开发和检查
 
@@ -77,5 +79,7 @@ CLOUDPILOT_TEST_CODEX_IMAGE=cloudpilot-codex:latest go test ./internal/runtime -
 ```
 
 这些检查覆盖容器生命周期、产物收集、密钥脱敏、取消清理，以及交互式会话的补充信息、中断、跨容器恢复、工作目录保留和明确结束。真实 Codex 的协议检查连接本地模拟 Responses endpoint，均不调用付费模型。未设置相应镜像变量时，日常 `go test ./...` 跳过需要 daemon 的集成用例。
+
+E2B / Novita 的协议、模板和真实运行验证见 [E2B runner 验收说明](2026-11-01-e2b-runner.md#验收)；这些集成检查显式提供凭据后才会访问远端服务。
 
 设置 `CLOUDPILOT_TEST_POSTGRES_DSN` 或 `CLOUDPILOT_TEST_MYSQL_DSN` 后，运行 `go test ./internal/model -run TestDatabaseIntegration -v` 可检查对应数据库的迁移、长文本、幂等约束和事务回滚。必须使用名称以 `cloudpilot_test_` 开头的专用空测试数据库，不能指向生产数据库。

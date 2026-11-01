@@ -1,6 +1,6 @@
 # Agent 会话与人工介入
 
-Codex + Docker 使用 app-server 会话处理反馈。首次反馈创建一个 Run 和一个 AgentSession；同一任务的人工补充、打断与继续记录在该会话中。一个会话可以包含多个 AgentTurn，每轮都有独立状态、输入和时间记录。
+Codex 通过 Docker 或 E2B runner 使用 app-server 会话处理反馈。首次反馈创建一个 Run 和一个 AgentSession；同一任务的人工补充、打断与继续记录在该会话中。一个会话可以包含多个 AgentTurn，每轮都有独立状态、输入和时间记录。
 
 ## 在 Web UI 中使用
 
@@ -20,7 +20,7 @@ Codex + Docker 使用 app-server 会话处理反馈。首次反馈创建一个 R
 
 ## 完成、排队和关闭
 
-一次 Agent 轮次自然结束时，Run 和 Event 变为 `succeeded`，会话变为 `idle`，并收集本轮产物。因此“运行成功”与“会话仍可继续”可以同时成立。会话空闲时不会保留运行中的容器，也不占用 Pipeline 的并发额度；工作目录和 Codex 会话数据继续保留。
+一次 Agent 轮次自然结束时，Run 和 Event 变为 `succeeded`，会话变为 `idle`，并收集本轮产物。因此“运行成功”与“会话仍可继续”可以同时成立。会话空闲时，Docker 删除执行容器、E2B 暂停 sandbox，均不占用 Pipeline 的并发额度；工作目录和 Codex 会话数据继续保留。
 
 人工继续会将 Run 设为 `queued`、Event 设为 `waiting`，并创建状态为 `queued` 的下一轮。它不需要等待下一次 cron 触发，但仍遵守 Pipeline 当前的暂停状态和并发限制。相同会话不会并行执行两轮，活动轮次中的补充信息也不会额外占用并发额度。
 
@@ -53,7 +53,7 @@ Codex + Docker 使用 app-server 会话处理反馈。首次反馈创建一个 R
 
 人工输入最多为 32 KiB UTF-8 文本。不存在的 Run 返回 404；不支持的交互或状态已变化的操作返回 409；输入格式错误返回 400。操作接受后返回 202，最终状态通过运行详情和时间线查询。
 
-`capabilities` 包含 `interactive`、`canSend`、`canInterrupt`、`canResume`、`canClose`。这些字段描述当前可执行的操作，客户端仍需处理点击按钮后状态发生变化的情况。旧批处理 Run 返回 `session: null` 和关闭的交互能力。
+`capabilities` 包含 `interactive`、`canSend`、`canInterrupt`、`canResume`、`canClose`。这些字段描述当前可执行的操作，客户端仍需处理点击按钮后状态发生变化的情况。E2B 工作目录已丢失时，`session.workspaceLost` 为 `true`，禁止发送和继续，仍可结束任务以清理记录。旧批处理 Run 返回 `session: null` 和关闭的交互能力。
 
 时间线是追加式事件流，通过事件 `id` 递增读取。消息与工具项由 `(turnId, itemId)` 标识；`delta: true` 表示追加文本或工具输出，`delta: false` 表示替换该项的当前快照。`control` 事件的 `controlId` 指向待投递的用户消息，`accepted` 或 `rejected` 表示投递结果。结构化事件与原始日志使用不同的游标，不能混用。
 
@@ -61,12 +61,14 @@ Codex + Docker 使用 app-server 会话处理反馈。首次反馈创建一个 R
 
 Docker 为交互式会话保留命名卷 `cloudpilot-<deployment-runtime-id>-run-<run-id>-workspace`，挂载到 `/workspace`，保存仓库文件和 `.codex` 中的 Codex 会话数据。每轮使用独立的执行容器和新的 `/output`；容器正常退出、中断或服务关闭后，工作目录卷仍然保留。只有“结束任务”会清理会话卷。文件产物按轮次收集到服务的数据目录，后续轮次不会覆盖以前已下载的产物。需要跨轮继续使用的中间文件应放在 `/workspace`，`/output` 用于本轮交付。
 
-服务启动时先清理当前部署遗留的执行容器。被中断的活动轮次标记为 `interrupted`，不会自动重放；已排队的人工作业继续等待调度。保留的工作目录、Codex thread ID 和会话文件用于继续执行。部署标识保存在 `runtime.data_dir/runtime-id`，恢复时必须与数据库、会话卷一起保留。
+E2B 为每个 AgentSession 保留独立的远端 sandbox，每轮启动新进程并重新准备 `/output`，轮末收集产物后暂停。恢复下一轮时复用 `/workspace` 和 Codex 会话文件；“结束任务”删除远端实例。暂停保留的系统及进程状态、存储费用和清理细节见 [E2B / Novita runner](2026-11-01-e2b-runner.md)。
 
-结束任务时，如果清理失败，会话停留在 `closing` 并记录错误，管理员可以再次请求结束。不要把尚未成功清理的会话视为已释放存储。需要回收磁盘空间时，通过运行详情结束不再使用的会话；直接删除卷会使对应会话失去可恢复的工作目录。
+服务启动时由各 runner 核对当前部署的遗留执行环境。被中断的活动轮次标记为 `interrupted`，不会自动重放；已排队的人工作业继续等待调度。保留的工作目录、Codex thread ID 和会话文件用于继续执行。Docker 部署标识保存在 `runtime.data_dir/runtime-id`，E2B 标识保存在 `runtime.data_dir/e2b/runtime-id`，恢复时必须与数据库、完整数据目录及对应的卷或远端实例一起保留。远端 sandbox 已删除或过期时，会话标记为工作目录丢失，不能用一个空实例继续原对话。
+
+结束任务时，如果清理失败，会话停留在 `closing` 并记录错误，管理员可以再次请求结束。不要把尚未成功清理的会话视为已释放存储。需要回收存储时，通过运行详情结束不再使用的会话；直接删除卷或远端 sandbox 会使对应会话失去可恢复的工作目录。
 
 ## 执行器扩展
 
-`engine.Executor` 保持批处理接口。交互式适配器实现 `engine.InteractiveExecutor`，提供能力判断、轮次执行、活动控制和会话清理；统一调度器负责状态持久化、并发与时间线。Docker 中的交互式 Worker 还通过 `runtime.SessionWorker.PrepareSession` 提供双向进程入口。当前入口使用 Codex app-server 协议：`thread/start`、`thread/resume`、`turn/start`、`turn/steer` 和 `turn/interrupt`，再将协议事件转换为平台的消息和工具事件。接入其他协议时，需要提供相应的交互适配器或协议转换入口。
+`engine.Executor` 保持批处理接口。交互式适配器实现 `engine.InteractiveExecutor`，提供能力判断、轮次执行、活动控制和会话清理；统一调度器负责状态持久化、并发与时间线。Docker 和 E2B 的交互式 Worker 共用 `runtime.SessionWorker.PrepareSession` 提供双向进程入口。当前入口使用 Codex app-server 协议：`thread/start`、`thread/resume`、`turn/start`、`turn/steer` 和 `turn/interrupt`，再将协议事件转换为平台的消息和工具事件。接入其他协议时，需要提供相应的交互适配器或协议转换入口。
 
 运行设施和 Agent 的交互能力由适配器声明，前端不假定每种 Worker 都支持会话继续。
