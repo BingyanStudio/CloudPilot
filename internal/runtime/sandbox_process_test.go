@@ -33,7 +33,9 @@ func TestSandboxProcessLifecycle(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return exec.CommandContext(ctx, node, "--input-type=module", "-e", `const {startWorker} = await import(process.argv[1]); process.exitCode = await startWorker(JSON.parse(process.argv[2]), process.argv[3]);`, scriptURL, string(config), record)
+		command := exec.CommandContext(ctx, node, "--input-type=module", "-e", `const {startWorker} = await import(process.argv[1]); process.exitCode = await startWorker(JSON.parse(process.argv[2]), process.argv[3]);`, scriptURL, string(config), record)
+		command.Dir = filepath.Dir(record)
+		return command
 	}
 	stop := func(record string) error {
 		return exec.CommandContext(ctx, node, "--input-type=module", "-e", `const {stopWorker} = await import(process.argv[1]); await stopWorker(process.argv[2]);`, scriptURL, record).Run()
@@ -41,14 +43,14 @@ func TestSandboxProcessLifecycle(t *testing.T) {
 
 	t.Run("EOF and separate streams", func(t *testing.T) {
 		record := filepath.Join(t.TempDir(), "group")
-		command := start(t, `process.stdin.pipe(process.stdout); process.stdin.on('end',()=>console.error('worker stderr'));`, record)
+		command := start(t, `console.log(process.cwd()); process.stdin.pipe(process.stdout); process.stdin.on('end',()=>console.error('worker stderr'));`, record)
 		command.Stdin = strings.NewReader("中文 JSONL\n")
 		var stdout, stderr bytes.Buffer
 		command.Stdout, command.Stderr = &stdout, &stderr
 		if err := command.Run(); err != nil {
 			t.Fatalf("supervisor: %v: %s", err, stderr.String())
 		}
-		if stdout.String() != "中文 JSONL\n" || stderr.String() != "worker stderr\n" {
+		if stdout.String() != filepath.Dir(record)+"\n中文 JSONL\n" || stderr.String() != "worker stderr\n" {
 			t.Fatalf("unexpected streams: stdout=%q stderr=%q", stdout.String(), stderr.String())
 		}
 		if _, err := os.Stat(record); !errors.Is(err, os.ErrNotExist) {

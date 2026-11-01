@@ -108,7 +108,7 @@ export async function startWorker(config, recordPath = defaultRecord) {
   try {
     const token = randomUUID();
     child = spawn(config.entrypoint, config.args, {
-      cwd: '/workspace', detached: true, stdio: ['pipe', 'inherit', 'inherit'],
+      detached: true, stdio: ['pipe', 'inherit', 'inherit'],
       env: { ...process.env, [tokenVariable]: token },
     });
     const exited = new Promise((resolve, reject) => {
