@@ -17,6 +17,7 @@ import (
 	"github.com/BingyanStudio/CloudPilot/internal/config"
 	"github.com/BingyanStudio/CloudPilot/internal/controller"
 	"github.com/BingyanStudio/CloudPilot/internal/engine"
+	"github.com/BingyanStudio/CloudPilot/internal/github"
 	"github.com/BingyanStudio/CloudPilot/internal/metrics"
 	appmiddleware "github.com/BingyanStudio/CloudPilot/internal/middleware"
 	"github.com/BingyanStudio/CloudPilot/internal/model"
@@ -72,7 +73,7 @@ func serve(ctx context.Context, path string) error {
 			return next(c)
 		}
 	})
-	views.Register(e, &controller.App{DB: db, Engine: worker, DataDir: cfg.Runtime.DataDir, SecureCookies: cfg.Server.SecureCookies}, cfg.Server.FrontendDir)
+	views.Register(e, &controller.App{DB: db, Engine: worker, DataDir: cfg.Runtime.DataDir, SecureCookies: cfg.Server.SecureCookies, PublicURL: cfg.Server.PublicURL}, cfg.Server.FrontendDir)
 	listener, err := net.Listen("tcp", cfg.Server.Address)
 	if err != nil {
 		return err
@@ -98,6 +99,13 @@ func serve(ctx context.Context, path string) error {
 	maintenanceDone := make(chan struct{})
 	go func() { defer close(maintenanceDone); remote.Maintain(maintenanceCtx) }()
 	defer func() { stopMaintenance(); <-maintenanceDone }()
+	notificationCtx, stopNotifications := context.WithCancel(ctx)
+	defer stopNotifications()
+	notificationsDone := make(chan struct{})
+	go func() {
+		defer close(notificationsDone)
+		(&github.Notifier{DB: db}).Run(notificationCtx)
+	}()
 	errorsCh := make(chan error, 2)
 	go func() { errorsCh <- server.Serve(listener) }()
 	if metricServer != nil {
@@ -111,6 +119,11 @@ func serve(ctx context.Context, path string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	serverErr := server.Shutdown(shutdownCtx)
+	stopNotifications()
+	select {
+	case <-notificationsDone:
+	case <-shutdownCtx.Done():
+	}
 	if metricServer != nil {
 		_ = metricServer.Shutdown(shutdownCtx)
 	}

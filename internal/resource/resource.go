@@ -23,11 +23,13 @@ import (
 const apiVersion = "cloudpilot.dev/v1alpha1"
 
 var (
-	mutation      sync.Mutex
-	namePattern   = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
-	envPattern    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	ErrReferenced = errors.New("resource is still referenced")
-	ErrConflict   = errors.New("resource changed; reload before saving")
+	mutation           sync.Mutex
+	namePattern        = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+	envPattern         = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	githubOwnerPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$`)
+	githubRepoPattern  = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}$`)
+	ErrReferenced      = errors.New("resource is still referenced")
+	ErrConflict        = errors.New("resource changed; reload before saving")
 )
 
 // ParseYAML accepts strict, Kubernetes-style multi-document resource manifests.
@@ -193,6 +195,34 @@ func Delete(db *gorm.DB, kind, name string) error {
 
 func key(kind, name string) string { return kind + "/" + name }
 
+// validateGitHubInput requires an explicit repository and at least one trigger filter.
+func validateGitHubInput(s *model.GitHubInputSpec) error {
+	if s == nil {
+		return errors.New("github configuration is required for github_issue inputs")
+	}
+	owner, repo, ok := strings.Cut(s.Repository, "/")
+	if !ok || !githubOwnerPattern.MatchString(owner) || !githubRepoPattern.MatchString(repo) || repo == "." || repo == ".." {
+		return errors.New("github.repository must be an owner/repo name")
+	}
+	if !envPattern.MatchString(s.TokenSecretRef) {
+		return errors.New("github.tokenSecretRef must name an environment variable")
+	}
+	if len(s.Assignees)+len(s.Labels) == 0 {
+		return errors.New("github.assignees or github.labels must contain at least one trigger filter")
+	}
+	for _, assignee := range s.Assignees {
+		if assignee != "*" && !githubOwnerPattern.MatchString(assignee) {
+			return errors.New("github.assignees must contain GitHub usernames or * for any assignee")
+		}
+	}
+	for _, label := range s.Labels {
+		if strings.TrimSpace(label) == "" || len([]rune(label)) > 50 || strings.ContainsAny(label, "\r\n") {
+			return errors.New("github.labels must contain nonblank, single-line labels of at most 50 characters")
+		}
+	}
+	return nil
+}
+
 func decodeStrict(data []byte, target any) error {
 	d := json.NewDecoder(bytes.NewReader(data))
 	d.DisallowUnknownFields()
@@ -225,11 +255,18 @@ func normalize(doc model.Document) (model.Document, error) {
 		if s.Type == "" {
 			s.Type = "webhook"
 		}
-		if s.Type != "webhook" {
-			return doc, errors.New("input type must be webhook")
+		if s.Type != "webhook" && s.Type != "github_issue" {
+			return doc, errors.New("input type must be webhook or github_issue")
 		}
 		if !namePattern.MatchString(s.PipelineRef) || !envPattern.MatchString(s.SecretRef) {
 			return doc, errors.New("pipelineRef and secretRef (environment variable name) are required")
+		}
+		if s.Type == "github_issue" {
+			if err := validateGitHubInput(s.GitHub); err != nil {
+				return doc, err
+			}
+		} else if s.GitHub != nil {
+			return doc, errors.New("github configuration requires input type github_issue")
 		}
 		spec = s
 	case "Pipeline":

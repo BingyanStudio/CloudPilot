@@ -35,6 +35,7 @@ type App struct {
 	Engine        *engine.Engine
 	DataDir       string
 	SecureCookies bool
+	PublicURL     string
 	loginMu       sync.Mutex
 	logins        map[string]loginWindow
 }
@@ -256,6 +257,9 @@ func (a *App) Webhook(c *echo.Context) error {
 	}
 	if spec.Paused {
 		return fail(c, http.StatusConflict, "input is paused")
+	}
+	if spec.Type == "github_issue" {
+		return a.githubIssue(c, item.Name, spec)
 	}
 	secret := os.Getenv(spec.SecretRef)
 	if secret == "" {

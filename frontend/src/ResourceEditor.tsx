@@ -19,7 +19,7 @@ import { parseDocument, stringify } from 'yaml';
 import { message, request, resourcePath } from './api';
 import { ErrorNotice, PageHeading } from './components';
 import { navigate } from './hooks';
-import { kindLabels, runnerSpec, type Kind, type Resource, type Spec } from './types';
+import { kindLabels, runnerSpec, type GitHubInput, type Kind, type Resource, type Spec } from './types';
 
 function assertFormShape(value: Resource) {
   const spec = value.spec;
@@ -62,6 +62,20 @@ function assertFormShape(value: Resource) {
   }
   if (spec.paused !== undefined && typeof spec.paused !== 'boolean')
     throw new Error('spec.paused 必须是布尔值。');
+  if (spec.github !== undefined) {
+    if (!object(spec.github)) throw new Error('spec.github 必须是 GitHub 配置对象。');
+    for (const key of ['repository', 'tokenSecretRef'])
+      if (spec.github[key] !== undefined && typeof spec.github[key] !== 'string')
+        throw new Error(`spec.github.${key} 必须是字符串。`);
+    for (const key of ['assignees', 'labels']) {
+      const items = spec.github[key];
+      if (
+        items !== undefined &&
+        (!Array.isArray(items) || items.some((item) => typeof item !== 'string'))
+      )
+        throw new Error(`spec.github.${key} 必须是字符串数组。`);
+    }
+  }
   if (
     spec.tools !== undefined &&
     (!Array.isArray(spec.tools) || spec.tools.some((item) => typeof item !== 'string'))
@@ -125,6 +139,23 @@ export default function ResourceEditor({
   );
   const spec = doc.spec;
   const e2b = (spec.e2b ?? {}) as Spec;
+  const github = (spec.github || {}) as Partial<GitHubInput>;
+  const setGitHub = (key: keyof GitHubInput, value: string | string[]) =>
+    setDoc((current) => ({
+      ...current,
+      spec: {
+        ...current.spec,
+        github: { ...(current.spec.github as Partial<GitHubInput>), [key]: value },
+      },
+    }));
+  const setInputType = (type: string) =>
+    setDoc((current) => {
+      const next: Spec = { ...current.spec, type };
+      if (type === 'github_issue')
+        next.github = { repository: '', tokenSecretRef: 'GITHUB_TOKEN', assignees: [], labels: [] };
+      else delete next.github;
+      return { ...current, spec: next };
+    });
   const set = (key: string, value: unknown) =>
     setDoc((current) => ({
       ...current,
@@ -223,6 +254,14 @@ export default function ResourceEditor({
     />
   );
   const fromForm = (): Resource => {
+    if (doc.kind === 'Input' && spec.type === 'github_issue') {
+      const normalized = {
+        ...github,
+        assignees: (github.assignees || []).map((value) => value.trim()).filter(Boolean),
+        labels: (github.labels || []).map((value) => value.trim()).filter(Boolean),
+      };
+      return { ...doc, spec: { ...spec, github: normalized } };
+    }
     if (doc.kind !== 'Workspace') return doc;
     const next: Spec = { ...doc.spec };
     for (const key of ['mcpServers', 'env', 'secretEnv']) next[key] = jsonObject(jsonFields[key]);
@@ -366,12 +405,67 @@ export default function ResourceEditor({
                   <div className="form-grid">
                     {doc.kind === 'Input' && (
                       <>
-                        {field('type', '接入类型', '首版支持 webhook。')}
+                        <Select
+                          id="resource-type"
+                          labelText="接入类型"
+                          value={text('type') || 'webhook'}
+                          onChange={(event) => setInputType(event.target.value)}
+                        >
+                          <SelectItem value="webhook" text="通用 Webhook" />
+                          <SelectItem value="github_issue" text="GitHub issue" />
+                        </Select>
                         {reference('pipelineRef', 'Pipeline')}
                         {field(
                           'secretRef',
                           'Webhook 密钥环境变量',
-                          '填写服务器环境变量名称，不要填写密钥原文。',
+                          spec.type === 'github_issue'
+                            ? '填写保存 GitHub Webhook Secret 的服务器环境变量名称，用于校验签名。'
+                            : '填写服务器环境变量名称，不要填写密钥原文。',
+                        )}
+                        {spec.type === 'github_issue' && (
+                          <>
+                            <TextInput
+                              id="github-repository"
+                              labelText="GitHub 仓库"
+                              placeholder="owner/repo"
+                              value={github.repository || ''}
+                              onChange={(event) => setGitHub('repository', event.target.value)}
+                              helperText="只接收此仓库的 issue。"
+                            />
+                            <TextInput
+                              id="github-token-secret"
+                              labelText="GitHub Token 环境变量"
+                              value={github.tokenSecretRef || ''}
+                              onChange={(event) => setGitHub('tokenSecretRef', event.target.value)}
+                              helperText="填写服务器环境变量名称；Token 需要该仓库 Issues 读写权限，以回复任务链接。"
+                            />
+                            <TextArea
+                              id="github-assignees"
+                              labelText="触发条件 · Assignee"
+                              rows={3}
+                              value={(github.assignees || []).join('\n')}
+                              onChange={(event) => setGitHub('assignees', event.target.value.split('\n'))}
+                              helperText="每行一个 GitHub 用户名；填写 * 表示任意已指派的 issue。"
+                            />
+                            <TextArea
+                              id="github-labels"
+                              labelText="触发条件 · Label"
+                              rows={3}
+                              value={(github.labels || []).join('\n')}
+                              onChange={(event) => setGitHub('labels', event.target.value.split('\n'))}
+                              helperText="每行一个标签。Assignee 或 Label 至少填写一项，满足任意一个条件即可触发。"
+                            />
+                            <div className="full-width help-note">
+                              <strong>连接 GitHub Webhook</strong>
+                              <p>
+                                在仓库 Webhook 中填写下方地址，选择 application/json 和 Issues 事件，
+                                并设置与服务器环境变量一致的 Secret。服务器需配置公开访问地址 server.public_url。
+                              </p>
+                              <code>
+                                {`${window.location.origin}/hooks/${doc.metadata.name || '<接入点名称>'}`}
+                              </code>
+                            </div>
+                          </>
                         )}
                         {paused}
                       </>

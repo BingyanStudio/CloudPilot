@@ -25,6 +25,7 @@ import {
   Configuration,
   Dashboard as DashboardPage,
   Events,
+  EventPage,
   isKind,
   NotFound,
   Resources,
@@ -124,6 +125,8 @@ export default function App() {
       />
     );
   else if (route === '/events') content = <Events />;
+  else if (segments.length === 2 && segments[0] === 'events' && /^[1-9]\d*$/.test(segments[1]))
+    content = <EventPage key={segments[1]} id={segments[1]} />;
   else if (route === '/runs') content = <Runs />;
   else if (segments[0] === 'runs' && /^\d+$/.test(segments[1]))
     content = <RunPage key={segments[1]} id={segments[1]} />;

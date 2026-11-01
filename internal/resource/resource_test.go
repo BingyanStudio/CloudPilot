@@ -204,3 +204,82 @@ func TestE2BRunnerConfiguration(t *testing.T) {
 		t.Fatalf("custom connection changed: %s", doc.Spec)
 	}
 }
+
+func TestGitHubInputValidationAndRoundTrip(t *testing.T) {
+	db, err := model.Open("sqlite", filepath.Join(t.TempDir(), "github.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, _ := db.DB()
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	manifest := strings.Replace(testManifest, "spec: {pipelineRef: nightly, secretRef: FEEDBACK_TOKEN}", `spec:
+  type: github_issue
+  pipelineRef: nightly
+  secretRef: FEEDBACK_TOKEN
+  github:
+    repository: example/app
+    tokenSecretRef: GITHUB_TOKEN
+    assignees: [pilot, '*']
+    labels: [agent, 'help wanted']`, 1)
+	docs, err := ParseYAML([]byte(manifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied, err := Apply(db, docs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exported, err := ExportYAML(applied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip, err := ParseYAML(exported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(db, roundTrip); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := model.FindResource(db, "Input", "feedback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec model.InputSpec
+	if err := stored.Decode(&spec); err != nil {
+		t.Fatal(err)
+	}
+	if spec.GitHub == nil || spec.GitHub.Repository != "example/app" || spec.GitHub.TokenSecretRef != "GITHUB_TOKEN" || strings.Join(spec.GitHub.Assignees, ",") != "pilot,*" || strings.Join(spec.GitHub.Labels, ",") != "agent,help wanted" {
+		t.Fatalf("GitHub configuration lost on round trip: %+v", spec.GitHub)
+	}
+	for _, tc := range []struct {
+		name string
+		edit func(*model.InputSpec)
+	}{
+		{"missing settings", func(s *model.InputSpec) { s.GitHub = nil }},
+		{"unsupported type", func(s *model.InputSpec) { s.Type = "github" }},
+		{"webhook settings", func(s *model.InputSpec) { s.Type = "webhook" }},
+		{"repository URL", func(s *model.InputSpec) { s.GitHub.Repository = "https://github.com/example/app" }},
+		{"repository traversal", func(s *model.InputSpec) { s.GitHub.Repository = "example/.." }},
+		{"missing token reference", func(s *model.InputSpec) { s.GitHub.TokenSecretRef = "" }},
+		{"no filters", func(s *model.InputSpec) { s.GitHub.Assignees, s.GitHub.Labels = nil, nil }},
+		{"invalid assignee", func(s *model.InputSpec) { s.GitHub.Assignees = []string{"@pilot"} }},
+		{"blank label", func(s *model.InputSpec) { s.GitHub.Labels = []string{" "} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var invalid model.InputSpec
+			if err := stored.Decode(&invalid); err != nil {
+				t.Fatal(err)
+			}
+			tc.edit(&invalid)
+			body, err := json.Marshal(invalid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			doc := stored.Document()
+			doc.Spec = body
+			if _, err := Apply(db, []model.Document{doc}); err == nil {
+				t.Fatal("invalid GitHub input accepted")
+			}
+		})
+	}
+}

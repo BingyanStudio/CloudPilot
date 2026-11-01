@@ -12,6 +12,7 @@ func TestLoadOverridesAndValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("CLOUDPILOT_ADMIN_PASSWORD", "environment-password")
+	t.Setenv("CLOUDPILOT_SERVER_PUBLIC_URL", "https://pilot.example.com/cloudpilot/")
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
@@ -19,6 +20,16 @@ func TestLoadOverridesAndValidation(t *testing.T) {
 	if cfg.Admin.Password != "environment-password" || cfg.Server.Address != ":8080" || !filepath.IsAbs(cfg.Runtime.DataDir) {
 		t.Fatal("configuration defaults or overrides lost")
 	}
+	if cfg.Server.PublicURL != "https://pilot.example.com/cloudpilot" {
+		t.Fatalf("invalid public URL override: %q", cfg.Server.PublicURL)
+	}
+	for _, value := range []string{"/relative", "ftp://pilot.example.com", "https://user:password@pilot.example.com", "https://pilot.example.com?q=1", "https://pilot.example.com/#/events", "https://pilot.example.com?", "https://pilot.example.com#"} {
+		t.Setenv("CLOUDPILOT_SERVER_PUBLIC_URL", value)
+		if _, err := Load(path); err == nil {
+			t.Fatalf("accepted invalid public URL %q", value)
+		}
+	}
+	t.Setenv("CLOUDPILOT_SERVER_PUBLIC_URL", "")
 	t.Setenv("CLOUDPILOT_SCHEDULER_POLL_INTERVAL", "0s")
 	if _, err := Load(path); err == nil {
 		t.Fatal("accepted unbounded poll interval")
