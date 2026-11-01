@@ -637,8 +637,11 @@ export function Configuration() {
             </li>
           </ol>
           <div className="security-note">
-            <strong>密钥使用环境变量引用</strong>
-            <p>YAML 中填写变量名称。实际密钥由 CloudPilot 服务器运行环境提供。</p>
+            <strong>模型和沙箱 API 密钥加密保存</strong>
+            <p>
+              可在资源编辑器或 YAML 的 apiKey 中填写；导出不包含密钥，向新环境导入时需重新填写。
+              Webhook 和工作空间密钥继续使用环境变量引用。
+            </p>
           </div>
         </aside>
       </div>

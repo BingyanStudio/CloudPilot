@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   Button,
   TextInput,
+  PasswordInput,
   TextArea,
   Select,
   SelectItem,
@@ -38,6 +39,7 @@ function assertFormShape(value: Resource) {
     'timezone',
     'model',
     'endpoint',
+    'apiKey',
     'apiKeySecretRef',
     'instructions',
     'prompt',
@@ -54,7 +56,7 @@ function assertFormShape(value: Resource) {
       throw new Error(`spec.${key} 必须是数字。`);
   if (spec.e2b !== undefined) {
     if (!object(spec.e2b)) throw new Error('spec.e2b 必须是对象。');
-    for (const key of ['provider', 'domain', 'apiUrl', 'apiKeySecretRef', 'template', 'idleStrategy'])
+    for (const key of ['provider', 'domain', 'apiUrl', 'apiKey', 'apiKeySecretRef', 'template', 'idleStrategy'])
       if (spec.e2b[key] !== undefined && typeof spec.e2b[key] !== 'string')
         throw new Error(`spec.e2b.${key} 必须是字符串。`);
     if (spec.e2b.leaseSeconds !== undefined && typeof spec.e2b.leaseSeconds !== 'number')
@@ -504,11 +506,18 @@ export default function ResourceEditor({
                         {field('type', '智能体类型', '首版支持 codex。')}
                         {field('model', '模型', '使用你的 API 服务支持的模型 ID。')}
                         {field('endpoint', 'API 端点', '兼容 OpenAI Responses API 的服务地址。')}
-                        {field(
-                          'apiKeySecretRef',
-                          'API 密钥环境变量',
-                          '密钥保留在服务器环境变量中，配置仅存储引用。',
-                        )}
+                        <PasswordInput
+                          id="resource-api-key"
+                          labelText="API 密钥"
+                          autoComplete="new-password"
+                          value={text('apiKey')}
+                          onChange={(event) => set('apiKey', event.target.value)}
+                          helperText={
+                            existing
+                              ? '留空保留已保存的密钥，填写新值可替换。'
+                              : '保存后加密存储，读取和导出不会返回密钥。'
+                          }
+                        />
                         <div className="full-width">{textarea('instructions', '智能体指令')}</div>
                       </>
                     )}
@@ -535,19 +544,13 @@ export default function ResourceEditor({
                                 const provider = event.target.value;
                                 const domain =
                                   provider === 'novita' ? 'us-phx-1.sandbox.novita.ai' : 'e2b.app';
-                                const apiKeySecretRef =
-                                  provider === 'novita' ? 'NOVITA_API_KEY' : 'E2B_API_KEY';
                                 const defaultDomain =
                                   !e2b.domain ||
                                   ['e2b.app', 'us-phx-1.sandbox.novita.ai'].includes(String(e2b.domain));
-                                const defaultKey =
-                                  !e2b.apiKeySecretRef ||
-                                  ['E2B_API_KEY', 'NOVITA_API_KEY'].includes(String(e2b.apiKeySecretRef));
                                 set('e2b', {
                                   ...e2b,
                                   provider,
                                   domain: defaultDomain ? domain : e2b.domain,
-                                  apiKeySecretRef: defaultKey ? apiKeySecretRef : e2b.apiKeySecretRef,
                                 });
                               }}
                             >
@@ -556,7 +559,18 @@ export default function ResourceEditor({
                             </Select>
                             {e2bField('domain', '沙箱域名', '仅填写域名，不含协议、端口或路径。')}
                             {e2bField('apiUrl', '管理 API 地址', '可选；留空使用服务商默认地址。')}
-                            {e2bField('apiKeySecretRef', 'API 密钥环境变量', '密钥保留在服务器环境变量中，配置仅存储引用。')}
+                            <PasswordInput
+                              id="resource-e2b-api-key"
+                              labelText="沙箱 API 密钥"
+                              autoComplete="new-password"
+                              value={String(e2b.apiKey ?? '')}
+                              onChange={(event) => setE2B('apiKey', event.target.value)}
+                              helperText={
+                                existing
+                                  ? '留空保留已保存的密钥，填写新值可替换。'
+                                  : '保存后加密存储，读取和导出不会返回密钥。'
+                              }
+                            />
                             {e2bField('template', '沙箱模板', '必填。模板需预装 Node.js 和 Codex；CPU、内存由模板配置。')}
                             <NumberInput
                               id="resource-e2b-lease"

@@ -6,7 +6,7 @@ spec:
   type: codex
   model: deepseek/deepseek-v4.1-flash-1017
   endpoint: https://api.novita.ai/openai/v1
-  apiKeySecretRef: NOVITA_LLM_API_KEY
+  apiKey: REPLACE_WITH_LLM_API_KEY
   instructions: |
     Inspect the relevant code, complete the requested task, and verify the result.
     Write deliverables to /output and declare them in /output/artifacts.json.
@@ -35,7 +35,7 @@ spec:
     provider: novita
     domain: us-phx-1.sandbox.novita.ai
     apiUrl: https://api.us-phx-1.sandbox.novita.ai
-    apiKeySecretRef: NOVITA_SANDBOX_API_KEY
+    apiKey: REPLACE_WITH_SANDBOX_API_KEY
     template: REPLACE_WITH_BUILT_TEMPLATE_ID
     leaseSeconds: 900
     idleStrategy: pause

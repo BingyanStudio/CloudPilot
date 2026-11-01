@@ -64,7 +64,9 @@ Runner 在独立容器或 sandbox 的 `/workspace` 下检出仓库。仓库条�
 
 仓库提供的执行镜像和 sandbox 模板均包含 Git、GitHub CLI 和 Codex。提供 `GH_TOKEN` 或 `GITHUB_TOKEN` 时，GitHub HTTPS 克隆通过限定于 `github.com` 的凭据 helper 认证；私有仓库、issue 和 PR 操作需要该 token 对目标仓库具有对应权限。
 
-Worker 提供模型、API endpoint、API key 引用及通用指令。Workspace 提供项目提示词。每次 Run 会把这些内容和反馈事件交给 Codex；是否创建 issue、PR 或构建 APK 由任务、仓库工具链和可用权限共同决定。CloudPilot 负责执行和收集，不能保证 Agent 每次都产生所有类型的产物。
+Worker 提供模型、API endpoint、API key 及通用指令。`Worker.spec.apiKey` 和 `Runner.spec.e2b.apiKey` 可在界面或导入 YAML 中直接填写，服务使用启动主密钥加密后存入数据库。API 和 YAML 导出均省略密钥及其密文；编辑时省略或留空会保留已有值，填写新值会替换。向新数据库导入导出文件时，需要重新提供 API key。旧 `apiKeySecretRef` 仍支持环境变量引用；显式填写该引用且不提供新 `apiKey` 时，会切换回环境变量凭据。
+
+Workspace 提供项目提示词。每次 Run 会把配置和反馈事件交给 Codex；模型 API key 仅通过执行环境传入，沙箱管理 key 留在控制平面。是否创建 issue、PR 或构建 APK 由任务、仓库工具链和可用权限共同决定。CloudPilot 负责执行和收集，不能保证 Agent 每次都产生所有类型的产物。
 
 ## 产物协议
 

@@ -2,6 +2,7 @@
 """Run an opt-in HTTP → Novita fixture check, with a draft PR or local-only fix."""
 
 import argparse
+import base64
 import http.cookiejar
 import json
 import os
@@ -62,7 +63,8 @@ class Check:
         if not args.no_pr and not self.github:
             raise RuntimeError("GH_TOKEN (or --github-token-file) is required for PR mode")
         self.password, self.webhook = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-        self.hidden = sorted({value for value in (self.key, self.github, self.password, self.webhook) if value}, key=len, reverse=True)
+        self.encryption_key = base64.b64encode(secrets.token_bytes(32)).decode()
+        self.hidden = sorted({value for value in (self.key, self.github, self.password, self.webhook, self.encryption_key) if value}, key=len, reverse=True)
         self.local = urllib.request.build_opener(
             urllib.request.ProxyHandler({}),
             urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()), NoRedirect(),
@@ -135,8 +137,8 @@ class Check:
                   "scheduler": {"poll_interval": "500ms"}, "metrics": {"address": ""}}
         self.save("config.yaml", config)  # JSON is also valid YAML.
         env = {key: value for key, value in os.environ.items() if not key.startswith("CLOUDPILOT_")}
-        env.update(CLOUDPILOT_ADMIN_PASSWORD=self.password, NOVITA_SANDBOX_API_KEY=self.key,
-                   NOVITA_LLM_API_KEY=self.key, E2E_WEBHOOK_SECRET=self.webhook)
+        env.update(CLOUDPILOT_ADMIN_PASSWORD=self.password, CLOUDPILOT_ENCRYPTION_KEY=self.encryption_key,
+                   E2E_WEBHOOK_SECRET=self.webhook)
         if self.args.no_pr:
             env.pop("GH_TOKEN", None)
             env.pop("GITHUB_TOKEN", None)
@@ -193,14 +195,14 @@ Use the provided GH_TOKEN without printing it or writing it into files.
 """
         specs = [
             ("Worker", "e2e-worker", {"type": "codex", "model": "deepseek/deepseek-v4.1-flash-1017",
-             "endpoint": "https://api.novita.ai/openai/v1", "apiKeySecretRef": "NOVITA_LLM_API_KEY", "instructions": instructions}),
+             "endpoint": "https://api.novita.ai/openai/v1", "apiKey": self.key, "instructions": instructions}),
             ("Workspace", "e2e-workspace", {"repositories": [{"url": f"https://github.com/{args.repository}.git",
              "ref": args.base_ref, "path": "project"}], "prompt": instructions, "tools": [], "mcpServers": {},
              "env": {"GIT_AUTHOR_NAME": "CloudPilot E2E", "GIT_AUTHOR_EMAIL": "cloudpilot@users.noreply.github.com",
                      "GIT_COMMITTER_NAME": "CloudPilot E2E", "GIT_COMMITTER_EMAIL": "cloudpilot@users.noreply.github.com"},
              "secretEnv": {} if args.no_pr else {"GH_TOKEN": "GH_TOKEN"}}),
             ("Runner", "e2e-runner", {"type": "e2b", "e2b": {"provider": "novita",
-             "domain": "us-phx-1.sandbox.novita.ai", "apiUrl": PROVIDER, "apiKeySecretRef": "NOVITA_SANDBOX_API_KEY",
+             "domain": "us-phx-1.sandbox.novita.ai", "apiUrl": PROVIDER, "apiKey": self.key,
              "template": args.template, "leaseSeconds": 300, "idleStrategy": "pause"}}),
             ("Pipeline", "e2e-pipeline", {"workerRef": "e2e-worker", "workspaceRef": "e2e-workspace",
              "runnerRef": "e2e-runner", "schedule": "", "timezone": "Asia/Shanghai", "concurrency": 1,

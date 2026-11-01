@@ -6,7 +6,7 @@ spec:
   type: codex
   model: gpt-5.3-codex
   endpoint: https://api.openai.com/v1
-  apiKeySecretRef: OPENAI_API_KEY
+  apiKey: REPLACE_WITH_LLM_API_KEY
   instructions: |
     Investigate the feedback and verify the relevant code before making changes.
     Run the relevant tests. Explain what you changed and what you verified.

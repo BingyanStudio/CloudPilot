@@ -8,11 +8,12 @@
 
 ## 本地开发
 
-需要 Go 1.27.3+、Node.js 24、pnpm 12.16.1；使用 Docker runner 时还需要可访问的 Docker daemon。启动管理界面和 API 不需要模型密钥；执行任务时需要配置相应环境变量。
+需要 Go 1.27.3+、Node.js 24、pnpm 12.16.1；使用 Docker runner 时还需要可访问的 Docker daemon。启动时必须提供主加密密钥；模型和沙箱 API key 可在界面中填写，加密保存到数据库。
 
 ```sh
 cp config.example.yaml config.yaml
 export CLOUDPILOT_ADMIN_PASSWORD='replace-with-a-strong-password'
+export CLOUDPILOT_ENCRYPTION_KEY='<Base64 编码的 32 字节随机密钥，生成后持久保存>'
 make install
 make dev
 ```
