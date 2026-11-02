@@ -505,7 +505,7 @@ func (a *App) Download(c *echo.Context) error {
 	if err != nil || !stat.Mode().IsRegular() {
 		return fail(c, http.StatusNotFound, "artifact file unavailable")
 	}
-	c.Response().Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": artifact.Name}))
+	c.Response().Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(filePath)}))
 	c.Response().Header().Set("X-Content-Type-Options", "nosniff")
 	c.Response().Header().Set("Content-Length", strconv.FormatInt(stat.Size(), 10))
 	return c.Stream(http.StatusOK, "application/octet-stream", file)
