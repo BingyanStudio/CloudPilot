@@ -1802,3 +1802,62 @@ pre {
   text-decoration: underline dotted;
   cursor: help;
 }
+
+.flow-board {
+  overflow-x: auto;
+  padding: 20px 24px;
+  svg {
+    display: block;
+    font-family: inherit;
+  }
+}
+.flow-column {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  fill: #6f6f6f;
+}
+.flow-edge {
+  fill: none;
+  stroke: #a8a8a8;
+  stroke-width: 1.5;
+  transition:
+    opacity 0.15s,
+    stroke 0.15s;
+  &.is-active {
+    stroke: #0f62fe;
+    stroke-width: 2;
+  }
+  &.is-dim {
+    opacity: 0.2;
+  }
+}
+.flow-node {
+  rect:first-of-type {
+    fill: #fff;
+    stroke: #c6c6c6;
+  }
+  &:hover rect:first-of-type,
+  &:focus rect:first-of-type {
+    stroke: #0f62fe;
+    fill: #edf5ff;
+  }
+  &:focus {
+    outline: none;
+  }
+  &.is-paused rect:first-of-type {
+    stroke-dasharray: 4 3;
+  }
+  &.is-paused text {
+    opacity: 0.6;
+  }
+}
+.flow-name {
+  font-size: 13px;
+  font-weight: 500;
+  fill: #161616;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.flow-subtitle {
+  font-size: 11px;
+  fill: #6f6f6f;
+}

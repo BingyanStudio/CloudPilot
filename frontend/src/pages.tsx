@@ -62,6 +62,7 @@ import {
   type RunDetail,
   type RunLog,
 } from './types';
+import FlowBoard from './FlowBoard';
 import ResourceEditor from './ResourceEditor';
 import RunConversation from './RunConversation';
 
@@ -119,6 +120,15 @@ export function Dashboard() {
           </div>
         ))}
       </div>
+      {Boolean(resources.data?.length) && (
+        <>
+          <div className="section-line">
+            <h2>资源关系</h2>
+            <span className="mono muted">{resources.data!.length} RESOURCES</span>
+          </div>
+          <FlowBoard resources={resources.data!} />
+        </>
+      )}
       <div className="section-line">
         <h2>最近运行</h2>
         <Button kind="ghost" size="sm" renderIcon={ArrowRight} onClick={() => navigate('/runs')}>
