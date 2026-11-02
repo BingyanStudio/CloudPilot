@@ -144,11 +144,49 @@ type E2BRunnerSpec struct {
 	IdleStrategy    string `json:"idleStrategy"`
 }
 
+const (
+	RoleViewer = "viewer"
+	RoleEditor = "editor"
+	RoleAdmin  = "admin"
+)
+
+// RoleRank orders roles so that a higher rank includes every lower permission; unknown roles rank zero.
+func RoleRank(role string) int {
+	switch role {
+	case RoleViewer:
+		return 1
+	case RoleEditor:
+		return 2
+	case RoleAdmin:
+		return 3
+	}
+	return 0
+}
+
 type User struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
 	Username     string    `gorm:"size:190;uniqueIndex" json:"username"`
 	PasswordHash string    `gorm:"size:255" json:"-"`
+	Role         string    `gorm:"size:16;not null;default:viewer" json:"role"`
+	OIDCSubject  *string   `gorm:"column:oidc_subject;size:64;uniqueIndex" json:"-"`
+	SSO          bool      `gorm:"-" json:"sso"`
 	CreatedAt    time.Time `json:"createdAt"`
+}
+
+func (u *User) AfterFind(*gorm.DB) error {
+	u.SSO = u.OIDCSubject != nil
+	return nil
+}
+
+// OIDCSettings is the single-row SSO configuration managed from the web console.
+type OIDCSettings struct {
+	ID           uint   `gorm:"primaryKey" json:"-"`
+	Enabled      bool   `json:"enabled"`
+	DiscoveryURL string `json:"discoveryUrl"`
+	ClientID     string `json:"clientId"`
+	ClientSecret string `json:"-"`
+	Scopes       string `json:"scopes"`
+	DefaultRole  string `gorm:"size:16" json:"defaultRole"`
 }
 
 type Session struct {

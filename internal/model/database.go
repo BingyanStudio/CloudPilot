@@ -53,7 +53,7 @@ func Open(driver, dsn string) (*gorm.DB, error) {
 		sqlDB.SetMaxIdleConns(5)
 		sqlDB.SetConnMaxLifetime(30 * time.Minute)
 	}
-	if err := db.AutoMigrate(&Resource{}, &User{}, &Session{}, &Event{}, &Run{}, &RunLog{}, &Artifact{}, &PipelineState{}, &AgentSession{}, &AgentTurn{}, &SessionEvent{}, &RuntimeInstance{}, &GitHubIssueNotification{}, &encryptionState{}); err != nil {
+	if err := db.AutoMigrate(&Resource{}, &User{}, &Session{}, &Event{}, &Run{}, &RunLog{}, &Artifact{}, &PipelineState{}, &AgentSession{}, &AgentTurn{}, &SessionEvent{}, &RuntimeInstance{}, &GitHubIssueNotification{}, &OIDCSettings{}, &encryptionState{}); err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("migrate database: %w", err)
 	}
@@ -61,23 +61,38 @@ func Open(driver, dsn string) (*gorm.DB, error) {
 }
 
 // BootstrapAdmin initializes the administrator once; subsequent starts keep stored credentials.
+// Databases created before roles existed promote their oldest user so an administrator always remains.
 func BootstrapAdmin(db *gorm.DB, username, password string) error {
 	var count int64
 	if err := db.Model(&User{}).Count(&count).Error; err != nil {
 		return err
 	}
 	if count > 0 {
-		return nil
+		var admins int64
+		if err := db.Model(&User{}).Where("role = ?", RoleAdmin).Count(&admins).Error; err != nil || admins > 0 {
+			return err
+		}
+		var oldest User
+		if err := db.Order("id ASC").First(&oldest).Error; err != nil {
+			return err
+		}
+		return db.Model(&oldest).Update("role", RoleAdmin).Error
 	}
 	if strings.TrimSpace(username) == "" || len(username) > 190 {
 		return errors.New("admin.username must contain 1–190 characters")
 	}
+	hash, err := HashPassword(password)
+	if err != nil {
+		return fmt.Errorf("initial admin.password: %w", err)
+	}
+	return db.Create(&User{Username: username, PasswordHash: hash, Role: RoleAdmin}).Error
+}
+
+// HashPassword enforces the local-account password policy before hashing.
+func HashPassword(password string) (string, error) {
 	if len(password) < 12 || len(password) > 72 {
-		return errors.New("initial admin.password must contain 12–72 bytes")
+		return "", errors.New("password must contain 12–72 bytes")
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return err
-	}
-	return db.Create(&User{Username: username, PasswordHash: string(hash)}).Error
+	return string(hash), err
 }

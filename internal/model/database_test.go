@@ -93,6 +93,16 @@ func TestBootstrapAndJSONPersistence(t *testing.T) {
 	if len(users) != 1 || bcrypt.CompareHashAndPassword([]byte(users[0].PasswordHash), []byte("initial-password")) != nil {
 		t.Fatal("restart changed bootstrapped administrator")
 	}
+	// Databases from before roles existed hold users with the column default.
+	if err := db.Model(&users[0]).Update("role", RoleViewer).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := BootstrapAdmin(db, "admin", "initial-password"); err != nil {
+		t.Fatal(err)
+	}
+	if db.First(&users[0]).Error != nil || users[0].Role != RoleAdmin {
+		t.Fatalf("legacy user not promoted: %+v", users[0])
+	}
 	r := Resource{Kind: "Worker", Name: "codex", Spec: json.RawMessage(`{"type":"codex","model":"gpt-5"}`), Generation: 1}
 	if err := db.Create(&r).Error; err != nil {
 		t.Fatal(err)

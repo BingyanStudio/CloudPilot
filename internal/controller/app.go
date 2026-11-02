@@ -75,7 +75,7 @@ func (a *App) SameOrigin(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
-// Authenticate resolves an opaque, hashed session cookie to the administrator.
+// Authenticate resolves an opaque, hashed session cookie to its user.
 func (a *App) Authenticate(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		cookie, err := c.Cookie("cp_session")
@@ -98,7 +98,7 @@ func (a *App) Authenticate(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
-// Login creates a 24-hour administrator session after password verification.
+// Login creates a session after local password verification.
 func (a *App) Login(c *echo.Context) error {
 	if !a.allowLogin(c.RealIP()) {
 		c.Response().Header().Set("Retry-After", "60")
@@ -125,25 +125,43 @@ func (a *App) Login(c *echo.Context) error {
 	if err != nil || passwordErr != nil {
 		return fail(c, http.StatusUnauthorized, "invalid username or password")
 	}
+	if err := a.startSession(c, user); err != nil {
+		return internal(c, err)
+	}
+	return c.JSON(http.StatusOK, user)
+}
+
+// startSession issues a 24-hour opaque session cookie for an authenticated user.
+func (a *App) startSession(c *echo.Context, user model.User) error {
 	data := make([]byte, 32)
 	if _, err := rand.Read(data); err != nil {
-		return internal(c, err)
+		return err
 	}
 	token := hex.EncodeToString(data)
 	expires := time.Now().UTC().Add(24 * time.Hour)
-	session := model.Session{TokenHash: hashToken(token), UserID: user.ID, ExpiresAt: expires}
-	if err := a.DB.Create(&session).Error; err != nil {
-		return internal(c, err)
+	if err := a.DB.Create(&model.Session{TokenHash: hashToken(token), UserID: user.ID, ExpiresAt: expires}).Error; err != nil {
+		return err
 	}
 	a.DB.Where("expires_at <= ?", time.Now().UTC()).Delete(&model.Session{})
 	c.SetCookie(&http.Cookie{Name: "cp_session", Value: token, Path: "/", HttpOnly: true, Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode, Expires: expires, MaxAge: 86400})
-	return c.JSON(http.StatusOK, map[string]string{"username": user.Username})
+	return nil
 }
 
-// Me returns the authenticated administrator's name.
+// RequireRole rejects authenticated users whose role ranks below the given role.
+func RequireRole(role string) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if model.RoleRank(c.Get("cloudpilot.user").(model.User).Role) < model.RoleRank(role) {
+				return fail(c, http.StatusForbidden, "insufficient permissions")
+			}
+			return next(c)
+		}
+	}
+}
+
+// Me returns the authenticated user and role.
 func (a *App) Me(c *echo.Context) error {
-	user := c.Get("cloudpilot.user").(model.User)
-	return c.JSON(http.StatusOK, map[string]string{"username": user.Username})
+	return c.JSON(http.StatusOK, c.Get("cloudpilot.user").(model.User))
 }
 
 // Logout invalidates the session server-side and removes the browser cookie.

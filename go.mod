@@ -4,6 +4,7 @@ go 1.27.3
 
 require (
 	connectrpc.com/connect v1.21.1
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/labstack/echo-prometheus v0.0.1
 	github.com/labstack/echo/v5 v5.4.4
@@ -12,6 +13,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/crypto v0.58.0
+	golang.org/x/oauth2 v0.37.0
 	google.golang.org/protobuf v1.36.12
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/driver/postgres v1.6.3
@@ -25,6 +27,7 @@ require (
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/glebarez/go-sqlite v1.23.0 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-sql-driver/mysql v1.10.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
