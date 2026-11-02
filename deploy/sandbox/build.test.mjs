@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -63,7 +63,7 @@ test('template builder handles help, provisioning, build failures and credential
   assert.ok(!JSON.stringify(capture.definition).includes('test-secret'));
   assert.deepEqual(capture.config, { apiKey: 'test-secret', domain: 'example.test', apiUrl: 'https://api.example.test' });
   assert.equal(capture.name, 'cloudpilot-test');
-  assert.deepEqual(capture.resources, { cpuCount: 2, memoryMB: 2048 });
+  assert.deepEqual(capture.resources, { cpuCount: 8, memoryMB: 16384 });
   assert.deepEqual(capture.definition.filter(([step]) => step === 'setUser'), [['setUser', 'root'], ['setUser', 'user']]);
   assert.deepEqual(capture.definition.find(([step]) => step === 'setWorkdir'), ['setWorkdir', '/workspace']);
   const install = capture.definition.find(([step]) => step === 'runCmd')[1];
