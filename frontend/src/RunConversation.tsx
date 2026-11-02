@@ -13,8 +13,8 @@ import {
 } from '@carbon/react';
 import { Bot, UserAvatar, Terminal, SendAlt, Play, Pause, Stop } from '@carbon/icons-react';
 import { message, request } from './api';
-import { Empty, ErrorNotice, Status, formatTime } from './components';
-import type { AgentSession, AgentTurn, SessionCapabilities, SessionEvent } from './types';
+import { Empty, ErrorNotice, Markdown, Status, formatTime } from './components';
+import type { AgentSession, Artifact, AgentTurn, SessionCapabilities, SessionEvent } from './types';
 import { emptyTimeline, mergeTimeline, settledItem, type TimelineItem } from './sessionTimeline';
 
 type Action = (path: string, body?: unknown) => Promise<boolean>;
@@ -35,6 +35,7 @@ export default function RunConversation({
   id,
   session,
   turns,
+  artifacts,
   capabilities,
   busy,
   actionError,
@@ -44,6 +45,7 @@ export default function RunConversation({
   id: string;
   session: AgentSession | null;
   turns: AgentTurn[];
+  artifacts: Artifact[];
   capabilities: SessionCapabilities;
   busy: boolean;
   actionError: string;
@@ -205,7 +207,7 @@ export default function RunConversation({
                 ) : (
                   <>
                     {ungrouped.map((item) => (
-                      <TimelineCard item={item} key={item.key} />
+                      <TimelineCard item={item} key={item.key} artifacts={artifacts} />
                     ))}
                     {groups.map(({ id: turnId, number, turn }) => {
                       const items = timeline.items.filter((item) => item.turnId === turnId);
@@ -231,6 +233,7 @@ export default function RunConversation({
                             <TimelineCard
                               item={settledItem(item, turn?.status)}
                               key={item.key}
+                              artifacts={artifacts}
                               feedback={Boolean(
                                 turn?.initial &&
                                 item.firstEventId ===
@@ -339,7 +342,15 @@ export default function RunConversation({
   );
 }
 
-function TimelineCard({ item, feedback = false }: { item: TimelineItem; feedback?: boolean }) {
+function TimelineCard({
+  item,
+  artifacts,
+  feedback = false,
+}: {
+  item: TimelineItem;
+  artifacts: Artifact[];
+  feedback?: boolean;
+}) {
   if (item.type === 'tool') {
     return (
       <details className={`tool-card tool-${item.status}`}>
@@ -404,9 +415,15 @@ function TimelineCard({ item, feedback = false }: { item: TimelineItem; feedback
               />
             )}
           </div>
-          <div className="message-content">
-            {item.text || (item.status === 'streaming' ? '正在输出…' : '（空消息）')}
-          </div>
+          {item.text && !human ? (
+            <div className="message-content message-markdown">
+              <Markdown text={item.text} artifacts={artifacts} />
+            </div>
+          ) : (
+            <div className="message-content">
+              {item.text || (item.status === 'streaming' ? '正在输出…' : '（空消息）')}
+            </div>
+          )}
           {item.deliveryError && (
             <p className="message-delivery-error">
               信息未送达：{item.deliveryError}。可以在当前轮次结束后重新发送。

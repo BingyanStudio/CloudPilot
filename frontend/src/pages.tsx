@@ -36,6 +36,7 @@ import {
   Empty,
   ErrorNotice,
   LoadingState,
+  Markdown,
   MetadataItem,
   PageHeading,
   RefreshButton,
@@ -1054,6 +1055,7 @@ export function RunPage({ id }: { id: string }) {
           id={id}
           session={session}
           turns={turns}
+          artifacts={artifacts}
           capabilities={capabilities}
           busy={busy}
           actionError={actionError}
@@ -1214,7 +1216,16 @@ function ArtifactGrid({
         modalHeading={selected?.name || '产物内容'}
         onRequestClose={() => setSelected(null)}
       >
-        <pre className="text-artifact">{selected?.content || '此产物没有文本内容。'}</pre>
+        {selected?.content ? (
+          <div className="text-artifact">
+            <Markdown
+              text={selected.content}
+              artifacts={artifacts.filter((item) => item.runId === selected.runId)}
+            />
+          </div>
+        ) : (
+          <p className="text-artifact">此产物没有文本内容。</p>
+        )}
         {selected?.content && (
           <Button
             kind="ghost"

@@ -110,3 +110,19 @@ func TestBootstrapAndJSONPersistence(t *testing.T) {
 		t.Fatalf("unique resource key: %v", err)
 	}
 }
+
+// TestArtifactOutputPath verifies stored artifact paths map back to the worker's /output layout.
+func TestArtifactOutputPath(t *testing.T) {
+	for path, want := range map[string]string{
+		"/data/runs/runs/7/artifacts-123/app.apk":      "app.apk",
+		"/data/runs/runs/7/artifacts-123/logs/a.log":   "logs/a.log",
+		"/data/artifacts-x/runs/7/artifacts-1/out.txt": "out.txt",
+		"": "",
+	} {
+		artifact := Artifact{Path: path}
+		_ = artifact.AfterFind(nil)
+		if artifact.OutputPath != want {
+			t.Fatalf("%q -> %q, want %q", path, artifact.OutputPath, want)
+		}
+	}
+}

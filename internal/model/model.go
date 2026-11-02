@@ -2,6 +2,9 @@ package model
 
 import (
 	"encoding/json"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -198,10 +201,23 @@ type Artifact struct {
 	Name        string    `gorm:"size:255" json:"name"`
 	URL         string    `json:"url"`
 	Path        string    `json:"-"`
+	OutputPath  string    `gorm:"-" json:"outputPath,omitempty"`
 	Content     string    `json:"content"`
 	ContentType string    `gorm:"size:255" json:"contentType"`
 	Size        int64     `json:"size"`
 	CreatedAt   time.Time `json:"createdAt"`
+}
+
+// AfterFind exposes a file's path inside the worker's /output directory so agent links can be resolved.
+func (a *Artifact) AfterFind(*gorm.DB) error {
+	parts := strings.Split(filepath.ToSlash(a.Path), "/")
+	for i := 1; i < len(parts)-1; i++ {
+		if _, err := strconv.ParseUint(parts[i-1], 10, 64); err == nil && strings.HasPrefix(parts[i], "artifacts-") {
+			a.OutputPath = strings.Join(parts[i+1:], "/")
+			break
+		}
+	}
+	return nil
 }
 
 type PipelineState struct {

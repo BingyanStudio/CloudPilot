@@ -12,8 +12,11 @@ import {
   TableCell,
 } from '@carbon/react';
 import { ArrowRight, Renew, Cloud } from '@carbon/icons-react';
-import type { Run } from './types';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import type { Artifact, Run } from './types';
 import { navigate } from './hooks';
+import { artifactHref } from './artifactLinks';
 
 export function PageHeading({
   eyebrow,
@@ -207,4 +210,38 @@ export function safeURL(value: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+export function Markdown({ text, artifacts = [] }: { text: string; artifacts?: Artifact[] }) {
+  return (
+    <div className="markdown">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        urlTransform={(url) => artifactHref(url, artifacts) ?? defaultUrlTransform(url)}
+        components={{
+          a: ({ href, children }) => {
+            if (!href)
+              return (
+                <span className="markdown-missing" title="此运行没有收集到对应的产物文件">
+                  {children}
+                </span>
+              );
+            if (href.startsWith('/api/artifacts/'))
+              return (
+                <a href={href} download>
+                  {children}
+                </a>
+              );
+            return (
+              <a href={href} target="_blank" rel="noreferrer">
+                {children}
+              </a>
+            );
+          },
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
 }

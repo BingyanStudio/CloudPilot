@@ -1392,7 +1392,6 @@ pre {
   align-items: center;
 }
 .text-artifact {
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.9;
   font-size: 13px;
@@ -1715,4 +1714,91 @@ pre {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
   }
+}
+
+.message-markdown {
+  white-space: normal;
+}
+.markdown {
+  > :first-child {
+    margin-top: 0;
+  }
+  > :last-child {
+    margin-bottom: 0;
+  }
+  p,
+  ul,
+  ol,
+  pre,
+  blockquote,
+  table {
+    margin: 0 0 10px;
+  }
+  ul,
+  ol {
+    padding-left: 22px;
+  }
+  ul {
+    list-style: disc;
+  }
+  ol {
+    list-style: decimal;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    margin: 14px 0 8px;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  h1 {
+    font-size: 16px;
+  }
+  a {
+    color: #0f62fe;
+    text-decoration: underline;
+  }
+  code {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    background: #e8e8e8;
+    padding: 1px 4px;
+  }
+  pre {
+    background: #262626;
+    color: #f4f4f4;
+    padding: 12px 14px;
+    overflow-x: auto;
+    line-height: 1.6;
+    code {
+      background: none;
+      padding: 0;
+      color: inherit;
+    }
+  }
+  blockquote {
+    border-left: 3px solid #c6c6c6;
+    padding-left: 12px;
+    color: #525252;
+  }
+  table {
+    border-collapse: collapse;
+    display: block;
+    overflow-x: auto;
+  }
+  th,
+  td {
+    border: 1px solid #e0e0e0;
+    padding: 4px 10px;
+    text-align: left;
+  }
+  img {
+    max-width: 100%;
+  }
+}
+.markdown-missing {
+  color: #6f6f6f;
+  text-decoration: underline dotted;
+  cursor: help;
 }

@@ -56,6 +56,7 @@ export interface Artifact {
   kind: string;
   name: string;
   url: string;
+  outputPath?: string;
   content: string;
   contentType: string;
   size: number;

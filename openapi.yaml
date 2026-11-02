@@ -1523,6 +1523,9 @@ components:
           type: string
         url:
           type: string
+        outputPath:
+          type: string
+          description: File path relative to the worker's /output directory; present for file artifacts.
         content:
           type: string
         contentType:
