@@ -1,12 +1,12 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { parseArgs } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
+import { parseArgs } from 'node:util';
 
 const { values } = parseArgs({
   options: {
     name: { type: 'string', default: 'cloudpilot-codex' },
-    image: { type: 'string', default: 'node:24-bookworm-slim' },
+    image: { type: 'string', default: 'node:24-trixie' },
     domain: { type: 'string', default: process.env.NOVITA_DOMAIN || 'us-phx-1.sandbox.novita.ai' },
     'api-url': { type: 'string' },
     'key-file': { type: 'string', default: process.env.NOVITA_API_KEY_FILE },
@@ -42,7 +42,7 @@ try {
       'command -v sh bash tar find rm mkdir',
       'node --version && codex --version && codex app-server --help >/dev/null && git --version && gh --version',
     ].join(' && '));
-  const build = await novita.template.buildInBackground(template, values.name, { cpuCount: 2, memoryMB: 2048 });
+  const build = await novita.template.buildInBackground(template, values.name, { cpuCount: 8, memoryMB: 16384 });
   result = { ...build, domain: values.domain, apiUrl: values['api-url'] || `https://api.${values.domain}`, image: values.image, status: 'building' };
   if (values.output) await writeFile(values.output, JSON.stringify({ ...result, status: 'building' }, null, 2) + '\n', { mode: 0o600 });
   console.error(JSON.stringify({ templateId: build.templateId, buildId: build.buildId, status: 'building' }));
