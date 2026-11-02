@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { message, request } from './api';
+import type { User } from './types';
+
+export const UserContext = createContext<User | null>(null);
+
+// Mirrors the server's role checks so the UI hides actions the user cannot perform.
+export function usePermissions() {
+  const role = useContext(UserContext)?.role;
+  return { canEdit: role === 'admin' || role === 'editor', isAdmin: role === 'admin' };
+}
 
 export function useRoute() {
   const [route, setRoute] = useState(() => window.location.hash.slice(1) || '/');

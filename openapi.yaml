@@ -4,7 +4,9 @@ info:
   version: 0.1.0
   description: Declarative Agent scheduling and observability control plane. All /api routes except login require
     a session cookie. Browser mutations require Origin to match Host; CLI requests may omit Origin. JSON bodies
-    are limited to 2 MiB unless a smaller route-specific limit applies. Errors return {message}.
+    are limited to 2 MiB unless a smaller route-specific limit applies. Errors return {message}. Users have one
+    role. Viewer reads everything; editor additionally changes resources, imports configuration and drives
+    events and runs; admin additionally manages users and SSO settings. Insufficient roles receive 403.
 servers:
 - url: http://localhost:8080
   description: Local development
@@ -37,7 +39,7 @@ paths:
       security: []
   /api/auth/login:
     post:
-      summary: Create a 24-hour administrator session
+      summary: Create a 24-hour session with a local password
       tags:
       - Authentication
       responses:
@@ -68,7 +70,7 @@ paths:
         minute. Secure flag follows server configuration.
   /api/auth/me:
     get:
-      summary: Read the current administrator
+      summary: Read the current user
       tags:
       - Authentication
       responses:
@@ -840,6 +842,184 @@ paths:
           $ref: '#/components/responses/Error'
       description: Only file artifacts have downloads. Files are served as attachments with nosniff; internal filesystem
         paths are not exposed.
+  /api/auth/oidc:
+    get:
+      summary: Report whether SSO login is enabled
+      tags:
+      - Authentication
+      security: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                required:
+                - enabled
+  /api/auth/oidc/login:
+    get:
+      summary: Start OIDC login
+      tags:
+      - Authentication
+      security: []
+      description: Redirects to the identity provider using state, nonce and PKCE stored in a 10-minute HttpOnly
+        cp_oidc cookie. Failures redirect to /?sso_error=<message>.
+      responses:
+        '302':
+          description: Redirect to the identity provider or back to the console with sso_error.
+  /api/auth/oidc/callback:
+    get:
+      summary: Complete OIDC login
+      tags:
+      - Authentication
+      security: []
+      description: Verifies state, exchanges the code, verifies the ID token and nonce, then sets cp_session. The
+        first login of an issuer/subject creates a user with the configured default role; SSO never links to an
+        existing local account.
+      parameters:
+      - name: code
+        in: query
+        schema:
+          type: string
+      - name: state
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: error
+        in: query
+        schema:
+          type: string
+      responses:
+        '302':
+          description: Redirect to / on success, or /?sso_error=<message> on failure.
+  /api/users:
+    get:
+      summary: List users
+      tags:
+      - Users
+      description: Admin only.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Identity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      summary: Create a local user
+      tags:
+      - Users
+      description: Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Identity'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/users/{id}:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    patch:
+      summary: Change a user's role or reset a local password
+      tags:
+      - Users
+      description: Admin only. Admins cannot change their own role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdate'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Identity'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      summary: Delete a user and revoke their sessions
+      tags:
+      - Users
+      description: Admin only. Admins cannot delete themselves.
+      responses:
+        '204':
+          description: Deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/settings/oidc:
+    get:
+      summary: Read SSO settings
+      tags:
+      - Users
+      description: Admin only. The client secret is never returned.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCSettings'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      summary: Save SSO settings
+      tags:
+      - Users
+      description: Admin only. When enabled, the discovery document is fetched and validated before saving.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OIDCSettings'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCSettings'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 components:
   securitySchemes:
     sessionCookie:
@@ -910,7 +1090,7 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     Forbidden:
-      description: Cross-origin mutation rejected
+      description: Cross-origin mutation rejected or role lacks permission
       content:
         application/json:
           schema:
@@ -962,10 +1142,88 @@ components:
     Identity:
       type: object
       properties:
+        id:
+          type: integer
         username:
           type: string
+        role:
+          $ref: '#/components/schemas/Role'
+        sso:
+          type: boolean
+          description: Account was provisioned by OIDC login and has no local password.
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - username
+      - role
+      - sso
+    Role:
+      type: string
+      enum:
+      - admin
+      - editor
+      - viewer
+    UserCreate:
+      type: object
+      additionalProperties: false
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 190
+        password:
+          type: string
+          description: 12–72 bytes.
+        role:
+          $ref: '#/components/schemas/Role'
       required:
       - username
+      - password
+      - role
+    UserUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        role:
+          $ref: '#/components/schemas/Role'
+        password:
+          type: string
+          description: 12–72 bytes; local accounts only. Revokes the user's sessions.
+    OIDCSettings:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+        discoveryUrl:
+          type: string
+          description: Issuer URL or full /.well-known/openid-configuration URL.
+        clientId:
+          type: string
+        clientSecret:
+          type: string
+          writeOnly: true
+          description: Stored encrypted. Omit or leave empty to keep the stored secret.
+        hasClientSecret:
+          type: boolean
+          readOnly: true
+        scopes:
+          type: string
+          description: Space-separated; openid is always included.
+        defaultRole:
+          $ref: '#/components/schemas/Role'
+        redirectUrl:
+          type: string
+          readOnly: true
+          description: Callback URL to register with the identity provider.
+      required:
+      - enabled
+      - discoveryUrl
+      - clientId
+      - scopes
+      - defaultRole
     Login:
       type: object
       properties:

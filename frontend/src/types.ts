@@ -2,6 +2,19 @@
 export const kinds = ['Runner', 'Workspace', 'Worker', 'Pipeline', 'Input'] as const;
 export type Kind = (typeof kinds)[number];
 export type Spec = Record<string, unknown>;
+export type Role = 'admin' | 'editor' | 'viewer';
+export const roleLabels: Record<Role, string> = {
+  admin: '管理员',
+  editor: '编辑者',
+  viewer: '查看者',
+};
+export interface User {
+  id: number;
+  username: string;
+  role: Role;
+  sso: boolean;
+  createdAt: string;
+}
 export interface Resource {
   apiVersion: string;
   kind: Kind;

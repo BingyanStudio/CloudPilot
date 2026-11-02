@@ -19,7 +19,7 @@ import { ArrowLeft, Save, Add, TrashCan } from '@carbon/icons-react';
 import { parseDocument, stringify } from 'yaml';
 import { message, request, resourcePath } from './api';
 import { ErrorNotice, PageHeading } from './components';
-import { navigate } from './hooks';
+import { navigate, usePermissions } from './hooks';
 import { environmentValues, type EnvironmentRow } from './environment';
 import { kindLabels, runnerSpec, type GitHubInput, type Kind, type Resource, type Spec } from './types';
 
@@ -133,6 +133,7 @@ export default function ResourceEditor({
   const [tab, setTab] = useState(0);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const { canEdit } = usePermissions();
   const [mcpServersJSON, setMCPServersJSON] = useState(
     JSON.stringify(initial.spec.mcpServers || {}, null, 2),
   );
@@ -385,9 +386,22 @@ export default function ResourceEditor({
       </Button>
       <PageHeading
         eyebrow={`CONFIGURATION / ${initial.kind.toUpperCase()}`}
-        title={existing ? `编辑 ${initial.metadata.name}` : `创建${kindLabels[initial.kind]}`}
+        title={
+          existing
+            ? `${canEdit ? '编辑' : '查看'} ${initial.metadata.name}`
+            : `创建${kindLabels[initial.kind]}`
+        }
       />
       <ErrorNotice error={error} />
+      {!canEdit && (
+        <InlineNotification
+          kind="info"
+          title="只读模式"
+          subtitle="查看者可以浏览配置，但无法保存修改。"
+          hideCloseButton
+          lowContrast
+        />
+      )}
       <div className="editor-panel">
         <Tabs selectedIndex={tab} onChange={({ selectedIndex }) => switchTab(selectedIndex)}>
           <TabList aria-label="资源编辑方式">
@@ -752,7 +766,7 @@ export default function ResourceEditor({
             >
               取消
             </Button>
-            <Button renderIcon={Save} disabled={busy} onClick={() => void save()}>
+            <Button renderIcon={Save} disabled={busy || !canEdit} onClick={() => void save()}>
               {busy ? '正在保存…' : '保存配置'}
             </Button>
           </div>

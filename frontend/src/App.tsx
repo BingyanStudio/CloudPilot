@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ComponentType } from 'react';
-import { Button, InlineLoading, PasswordInput, TextInput, Theme } from '@carbon/react';
+import { Button, InlineLoading, PasswordInput, Tag, TextInput, Theme } from '@carbon/react';
 import {
   Cloud,
   Dashboard,
@@ -16,13 +16,15 @@ import {
   Menu,
   Close,
   ArrowRight,
+  Login as LoginIcon,
 } from '@carbon/icons-react';
+import ConfigCenter from './ConfigCenter';
 import { APIError, message, post, request } from './api';
 import { ErrorNotice } from './components';
-import { useRoute } from './hooks';
+import { UserContext, useData, useRoute } from './hooks';
+import { roleLabels, type User } from './types';
 import {
   Artifacts,
-  Configuration,
   Dashboard as DashboardPage,
   Events,
   EventPage,
@@ -33,9 +35,6 @@ import {
   Runs,
 } from './pages';
 
-interface User {
-  username: string;
-}
 interface Navigation {
   path: string;
   label: string;
@@ -58,7 +57,11 @@ const navigation: Navigation[] = [
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [checking, setChecking] = useState(true);
-  const [bootError, setBootError] = useState('');
+  const [bootError, setBootError] = useState(() => {
+    const ssoError = new URLSearchParams(window.location.search).get('sso_error');
+    if (ssoError) window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+    return ssoError ? `SSO 登录失败：${ssoError}` : '';
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [logoutError, setLogoutError] = useState('');
   const route = useRoute();
@@ -131,12 +134,13 @@ export default function App() {
   else if (segments[0] === 'runs' && /^\d+$/.test(segments[1]))
     content = <RunPage key={segments[1]} id={segments[1]} />;
   else if (route === '/artifacts') content = <Artifacts />;
-  else if (route === '/config') content = <Configuration />;
+  else if (route === '/config') content = <ConfigCenter />;
   else content = <NotFound />;
   const current = navigation.find((item) =>
     item.path === '/' ? route === '/' : route.startsWith(item.path),
   );
   return (
+    <UserContext.Provider value={user}>
     <Theme theme="g10">
       <div className="app-shell">
         <a
@@ -169,6 +173,9 @@ export default function App() {
               {user.username.slice(0, 2).toUpperCase()}
             </span>
             <span className="username">{user.username}</span>
+            <Tag size="sm" type={user.role === 'admin' ? 'purple' : user.role === 'editor' ? 'blue' : 'gray'}>
+              {roleLabels[user.role]}
+            </Tag>
             <Button
               kind="ghost"
               size="sm"
@@ -235,6 +242,7 @@ export default function App() {
         </main>
       </div>
     </Theme>
+    </UserContext.Provider>
   );
 }
 
@@ -255,6 +263,7 @@ function Login({ initialError, onLogin }: { initialError: string; onLogin: (user
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialError);
+  const sso = useData<{ enabled: boolean }>('/api/auth/oidc');
   const login = async () => {
     setBusy(true);
     setError('');
@@ -272,7 +281,7 @@ function Login({ initialError, onLogin }: { initialError: string; onLogin: (user
         <div className="login-form">
           <Brand />
           <h2>登录控制台</h2>
-          <p>使用初始配置中的管理员账户继续。</p>
+          <p>使用控制台账户或单点登录继续。</p>
           <ErrorNotice error={error} />
           <form
             onSubmit={(event) => {
@@ -283,7 +292,7 @@ function Login({ initialError, onLogin }: { initialError: string; onLogin: (user
             <TextInput
               id="login-username"
               labelText="用户名"
-              placeholder="管理员用户名"
+              placeholder="用户名"
               autoComplete="username"
               value={username}
               required
@@ -301,6 +310,16 @@ function Login({ initialError, onLogin }: { initialError: string; onLogin: (user
               {busy ? '正在登录…' : '登录'}
             </Button>
           </form>
+          {sso.data?.enabled && (
+            <Button
+              kind="tertiary"
+              className="sso-button"
+              renderIcon={LoginIcon}
+              href="/api/auth/oidc/login"
+            >
+              使用 SSO 登录
+            </Button>
+          )}
         </div>
         <span className="login-version">CloudPilot · v0.1</span>
       </section>

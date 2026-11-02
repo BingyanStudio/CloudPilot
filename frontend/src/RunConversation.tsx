@@ -13,6 +13,7 @@ import {
 } from '@carbon/react';
 import { Bot, UserAvatar, Terminal, SendAlt, Play, Pause, Stop } from '@carbon/icons-react';
 import { message, request } from './api';
+import { usePermissions } from './hooks';
 import { Empty, ErrorNotice, Markdown, Status, formatTime } from './components';
 import type { AgentSession, Artifact, AgentTurn, SessionCapabilities, SessionEvent } from './types';
 import { emptyTimeline, mergeTimeline, settledItem, type TimelineItem } from './sessionTimeline';
@@ -58,6 +59,7 @@ export default function RunConversation({
   const [autoScroll, setAutoScroll] = useState(true);
   const [closing, setClosing] = useState(false);
   const scrollArea = useRef<HTMLDivElement>(null);
+  const { canEdit } = usePermissions();
   const state = session?.state || 'starting';
   const inputBytes = new TextEncoder().encode(draft).length;
   const tooLong = inputBytes > 32 * 1024;
@@ -255,7 +257,12 @@ export default function RunConversation({
                   </>
                 )}
               </div>
-              {state !== 'closed' && state !== 'closing' && (
+              {!canEdit && state !== 'closed' && (
+                <div className="session-closed-note">
+                  查看者只能查看运行进度，无法发送消息或控制会话。
+                </div>
+              )}
+              {canEdit && state !== 'closed' && state !== 'closing' && (
                 <div className="conversation-composer">
                   <TextArea
                     id={`session-message-${id}`}

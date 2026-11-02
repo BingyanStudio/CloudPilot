@@ -3,7 +3,7 @@ encryption_key: "" # Set CLOUDPILOT_ENCRYPTION_KEY to a persistent, base64-encod
 server:
   address: ":8080"
   secure_cookies: false
-  public_url: "" # Required for GitHub issue task links, e.g. https://cloudpilot.example.com
+  public_url: "" # Required for GitHub issue task links and recommended for SSO callbacks, e.g. https://cloudpilot.example.com
 
 database:
   driver: sqlite # sqlite, postgres, mysql
@@ -13,7 +13,7 @@ database:
 
 admin:
   username: admin
-  password: "" # Set CLOUDPILOT_ADMIN_PASSWORD (12–72 bytes) before first startup.
+  password: "" # Set CLOUDPILOT_ADMIN_PASSWORD (12–72 bytes) before first startup. Other users and SSO are managed in the web console.
 
 runtime:
   data_dir: data/runs

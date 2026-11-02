@@ -11,7 +11,6 @@ import {
   TableBody,
   TableCell,
   Modal,
-  TextArea,
   InlineNotification,
   Tag,
   Toggle,
@@ -29,7 +28,6 @@ import {
   Copy,
   Stop,
   Renew,
-  Checkmark,
 } from '@carbon/icons-react';
 import { message, post, request, resourcePath } from './api';
 import {
@@ -46,7 +44,7 @@ import {
   formatTime,
   safeURL,
 } from './components';
-import { navigate, useData } from './hooks';
+import { navigate, useData, usePermissions } from './hooks';
 import {
   kinds,
   kindLabels,
@@ -70,6 +68,7 @@ export function Dashboard() {
   const overview = useData<Overview>('/api/overview', 10000);
   const runs = useData<Run[]>('/api/runs', 10000);
   const resources = useData<Resource[]>('/api/resources');
+  const { canEdit } = usePermissions();
   const stats = [
     {
       label: '等待处理',
@@ -145,6 +144,7 @@ export function Dashboard() {
             title="暂无运行记录"
             description="导入资源配置后，通过接入点提交任务。"
             action={
+              canEdit && (
               <Button
                 kind="tertiary"
                 size="sm"
@@ -153,6 +153,7 @@ export function Dashboard() {
               >
                 导入资源配置
               </Button>
+              )
             }
           />
         )}
@@ -184,12 +185,12 @@ export function Dashboard() {
               </footer>
             </a>
           ))
-        ) : (
-          <a className="pipeline-card add-pipeline" href="#/resources/Pipeline/_new">
+        ) : canEdit ? (
+          <a className="pipeline-card add-pipeline" href="#/resources/Runner">
             <Add size={24} />
-            <span>创建第一条流水线</span>
+            <span>从运行设施开始配置</span>
           </a>
-        )}
+        ) : null}
       </div>
     </>
   );
@@ -224,11 +225,12 @@ export function Resources({ kind, name }: { kind: Kind; name?: string }) {
   const [notice, setNotice] = useState('');
   const [deleting, setDeleting] = useState<Resource | null>(null);
   const [busy, setBusy] = useState(false);
+  const { canEdit } = usePermissions();
   const selected = data?.find((item) => item.kind === kind && item.metadata.name === name);
   if (name) {
     if (loading && !data) return <LoadingState />;
     if (error) return <ErrorNotice error={error} />;
-    if (name !== '_new' && !selected)
+    if ((name !== '_new' || !canEdit) && !selected)
       return (
         <Empty
           title="资源不存在"
@@ -268,19 +270,21 @@ export function Resources({ kind, name }: { kind: Kind; name?: string }) {
         eyebrow={`RESOURCES / ${kind.toUpperCase()}`}
         title={kindLabels[kind]}
         actions={
-          <>
-            <Button
-              kind="tertiary"
-              size="md"
-              renderIcon={Upload}
-              onClick={() => navigate('/config')}
-            >
-              导入 YAML
-            </Button>
-            <Button size="md" renderIcon={Add} onClick={() => navigate(`/resources/${kind}/_new`)}>
-              创建{kindLabels[kind]}
-            </Button>
-          </>
+          canEdit && (
+            <>
+              <Button
+                kind="tertiary"
+                size="md"
+                renderIcon={Upload}
+                onClick={() => navigate('/config')}
+              >
+                导入 YAML
+              </Button>
+              <Button size="md" renderIcon={Add} onClick={() => navigate(`/resources/${kind}/_new`)}>
+                创建{kindLabels[kind]}
+              </Button>
+            </>
+          )
         }
       />
       <ErrorNotice error={error || actionError} />
@@ -311,7 +315,7 @@ export function Resources({ kind, name }: { kind: Kind; name?: string }) {
           <Empty
             title={search ? '没有匹配的资源' : `尚未配置${kindLabels[kind]}`}
             action={
-              !search && (
+              !search && canEdit && (
                 <Button
                   kind="tertiary"
                   size="sm"
@@ -359,7 +363,7 @@ export function Resources({ kind, name }: { kind: Kind; name?: string }) {
                     <TableCell className="mono">v{item.metadata.generation || 1}</TableCell>
                     <TableCell>
                       <div className="row-actions">
-                        {kind === 'Pipeline' && (
+                        {canEdit && kind === 'Pipeline' && (
                           <Button
                             kind="ghost"
                             size="sm"
@@ -378,7 +382,7 @@ export function Resources({ kind, name }: { kind: Kind; name?: string }) {
                             }
                           />
                         )}
-                        {(kind === 'Pipeline' || kind === 'Input') && (
+                        {canEdit && (kind === 'Pipeline' || kind === 'Input') && (
                           <Button
                             kind="ghost"
                             size="sm"
@@ -408,21 +412,23 @@ export function Resources({ kind, name }: { kind: Kind; name?: string }) {
                           kind="ghost"
                           size="sm"
                           hasIconOnly
-                          iconDescription="编辑资源"
-                          renderIcon={Edit}
+                          iconDescription={canEdit ? '编辑资源' : '查看资源'}
+                          renderIcon={canEdit ? Edit : ArrowRight}
                           onClick={() =>
                             navigate(`/resources/${kind}/${encodeURIComponent(item.metadata.name)}`)
                           }
                         />
-                        <Button
-                          kind="danger--ghost"
-                          size="sm"
-                          hasIconOnly
-                          iconDescription="删除资源"
-                          renderIcon={TrashCan}
-                          disabled={busy}
-                          onClick={() => setDeleting(item)}
-                        />
+                        {canEdit && (
+                          <Button
+                            kind="danger--ghost"
+                            size="sm"
+                            hasIconOnly
+                            iconDescription="删除资源"
+                            renderIcon={TrashCan}
+                            disabled={busy}
+                            onClick={() => setDeleting(item)}
+                          />
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -473,146 +479,6 @@ export function Resources({ kind, name }: { kind: Kind; name?: string }) {
   );
 }
 
-export function Configuration() {
-  const [yaml, setYAML] = useState('');
-  const [error, setError] = useState('');
-  const [result, setResult] = useState<Resource[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const file = useRef<HTMLInputElement>(null);
-  const importYAML = async () => {
-    setBusy(true);
-    setError('');
-    setResult(null);
-    try {
-      const docs = await post<Resource[]>('/api/config/import', { yaml });
-      setResult(docs);
-    } catch (cause) {
-      setError(message(cause));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const exportYAML = async () => {
-    setError('');
-    try {
-      const response = await fetch('/api/config/export', {
-        credentials: 'same-origin',
-      });
-      if (!response.ok) throw new Error('导出失败，请检查登录状态并重试。');
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = 'cloudpilot-resources.yaml';
-      anchor.click();
-      URL.revokeObjectURL(url);
-    } catch (cause) {
-      setError(message(cause));
-    }
-  };
-  return (
-    <>
-      <PageHeading
-        eyebrow="DECLARATIVE CONFIGURATION"
-        title="配置中心"
-        actions={
-          <Button kind="tertiary" renderIcon={Download} onClick={() => void exportYAML()}>
-            导出所有资源
-          </Button>
-        }
-      />
-      <div className="config-layout">
-        <div className="panel config-panel">
-          <div className="section-line">
-            <h2>导入 YAML</h2>
-            <Button
-              kind="ghost"
-              size="sm"
-              renderIcon={Upload}
-              onClick={() => file.current?.click()}
-            >
-              选择文件
-            </Button>
-          </div>
-          <input
-            ref={file}
-            type="file"
-            className="visually-hidden"
-            accept=".yaml,.yml,text/yaml,application/yaml"
-            onChange={(event) => {
-              const selected = event.target.files?.[0];
-              if (selected) {
-                if (selected.size > 1024 * 1024) setError('YAML 文件不能超过 1 MiB。');
-                else
-                  void selected.text().then((value) => {
-                    setYAML(value);
-                    setError('');
-                  });
-              }
-              event.target.value = '';
-            }}
-          />
-          <TextArea
-            className="code-input"
-            id="config-yaml"
-            labelText="资源清单"
-            helperText="使用 --- 分隔多个资源。"
-            rows={22}
-            spellCheck={false}
-            value={yaml}
-            onChange={(event) => setYAML(event.target.value)}
-            placeholder={
-              'apiVersion: cloudpilot.dev/v1alpha1\nkind: Runner\nmetadata:\n  name: docker\nspec:\n  type: docker\n  image: cloudpilot-codex:latest'
-            }
-          />
-          <ErrorNotice error={error} />
-          {result && (
-            <InlineNotification
-              kind="success"
-              title={`已应用 ${result.length} 个资源`}
-              subtitle={result.map((item) => `${item.kind}/${item.metadata.name}`).join(' · ')}
-              hideCloseButton
-              lowContrast
-            />
-          )}
-          <div className="config-footer">
-            <Button
-              renderIcon={Checkmark}
-              disabled={busy || !yaml.trim()}
-              onClick={() => void importYAML()}
-            >
-              {busy ? '正在应用…' : '校验并应用'}
-            </Button>
-          </div>
-        </div>
-        <aside className="config-aside">
-          <h3>配置提示</h3>
-          <ol>
-            <li>
-              <strong>声明资源</strong>
-              <p>使用 kind 指定类型，metadata.name 标识资源。</p>
-            </li>
-            <li>
-              <strong>通过引用连接</strong>
-              <p>流水线引用 Worker、Workspace 和 Runner。Input 指向 Pipeline。</p>
-            </li>
-            <li>
-              <strong>原子应用</strong>
-              <p>只要有一个资源校验失败，整批配置都不会写入。</p>
-            </li>
-          </ol>
-          <div className="security-note">
-            <strong>接入点凭据与 API 密钥加密保存</strong>
-            <p>
-              可在资源编辑器中直接填写；导出不包含密钥，向新环境导入时需重新填写。
-            </p>
-          </div>
-        </aside>
-      </div>
-    </>
-  );
-}
-
 export function Events() {
   const [status, setStatus] = useState('');
   const [pipeline, setPipeline] = useState('');
@@ -623,6 +489,7 @@ export function Events() {
   const resources = useData<Resource[]>('/api/resources?kind=Pipeline');
   const [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState(false);
+  const { canEdit } = usePermissions();
   const retry = async (event: Event) => {
     setBusy(true);
     setActionError('');
@@ -688,7 +555,7 @@ export function Events() {
                     <TableCell className="mono">{event.attempts}</TableCell>
                     <TableCell>{formatTime(event.createdAt)}</TableCell>
                     <TableCell>
-                      {['failed', 'cancelled'].includes(event.status) ? (
+                      {canEdit && ['failed', 'cancelled'].includes(event.status) ? (
                         <Button
                           kind="ghost"
                           size="sm"
@@ -892,6 +759,7 @@ export function RunPage({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
+  const { canEdit } = usePermissions();
   const logEnd = useRef<HTMLDivElement>(null);
   const status = data?.run.status;
   useEffect(() => {
@@ -948,13 +816,16 @@ export function RunPage({ id }: { id: string }) {
   if (!data) return <ErrorNotice error={error || '运行记录不存在。'} />;
   if (String(data.run.id) !== id) return <LoadingState />;
   const { run, event, artifacts, session, turns = [] } = data;
-  const capabilities = data.capabilities || {
+  const reported = data.capabilities || {
     interactive: false,
     canSend: false,
     canInterrupt: false,
     canResume: false,
     canClose: false,
   };
+  const capabilities = canEdit
+    ? reported
+    : { ...reported, canSend: false, canInterrupt: false, canResume: false, canClose: false };
   const interactive = Boolean(session) || capabilities.interactive;
   const rawLogs = (
     <>
@@ -1018,7 +889,7 @@ export function RunPage({ id }: { id: string }) {
         actions={
           <>
             <Status value={run.status} />
-            {status === 'running' && !interactive && (
+            {canEdit && status === 'running' && !interactive && (
               <Button
                 kind="danger--tertiary"
                 size="md"
@@ -1029,7 +900,8 @@ export function RunPage({ id }: { id: string }) {
                 取消运行
               </Button>
             )}
-            {(!interactive || session?.state === 'closed') &&
+            {canEdit &&
+              (!interactive || session?.state === 'closed') &&
               ['failed', 'cancelled'].includes(event.status) && (
                 <Button
                   kind="tertiary"
