@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/BingyanStudio/CloudPilot/internal/engine"
+	"github.com/BingyanStudio/CloudPilot/internal/model"
 )
 
 const (
@@ -32,8 +33,8 @@ func resolveWorkerEnvironment(task engine.Task, prepared PreparedWorker) (map[st
 	maps.Copy(env, task.Workspace.Env)
 	var secrets []string
 	for key, reference := range task.Workspace.SecretEnv {
-		value, ok := os.LookupEnv(reference)
-		if !ok || value == "" {
+		value, ok := model.LookupSecretEnv(reference)
+		if !ok {
 			return nil, nil, fmt.Errorf("workspace secret %s is not configured", reference)
 		}
 		env[key] = value

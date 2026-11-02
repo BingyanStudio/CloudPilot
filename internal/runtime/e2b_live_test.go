@@ -38,9 +38,9 @@ func openE2BLiveRun(t *testing.T) *e2bLiveRun {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CLOUDPILOT_LIVE_SANDBOX_KEY", strings.TrimSpace(string(key)))
-	t.Setenv("CLOUDPILOT_LIVE_MODEL_KEY", strings.TrimSpace(string(key)))
-	t.Setenv("CLOUDPILOT_LIVE_FIXTURE_KEY", "fixture-session-secret")
+	t.Setenv("LIVE_SANDBOX_KEY", strings.TrimSpace(string(key)))
+	t.Setenv("LIVE_MODEL_KEY", strings.TrimSpace(string(key)))
+	t.Setenv("LIVE_FIXTURE_KEY", "fixture-session-secret")
 	dir := t.TempDir()
 	db, err := model.Open("sqlite", filepath.Join(dir, "live.db"))
 	if err != nil {
@@ -52,7 +52,7 @@ func openE2BLiveRun(t *testing.T) *e2bLiveRun {
 	}
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	live := &e2bLiveRun{executor: &E2B{DB: db, DataDir: dir}, session: model.AgentSession{RunID: 1, State: "idle"}}
-	live.task = engine.Task{Run: model.Run{ID: 1}, Event: model.Event{ID: 1, Payload: json.RawMessage(`{"feedback":"wait for operator"}`)}, Worker: model.WorkerSpec{Type: "codex", Model: "fixture", APIKeySecretRef: "CLOUDPILOT_LIVE_FIXTURE_KEY"}, Runner: model.RunnerSpec{Type: "e2b", E2B: &model.E2BRunnerSpec{Provider: "novita", Domain: "us-phx-1.sandbox.novita.ai", APIKeySecretRef: "CLOUDPILOT_LIVE_SANDBOX_KEY", Template: template, LeaseSeconds: 300, IdleStrategy: "pause"}}}
+	live.task = engine.Task{Run: model.Run{ID: 1}, Event: model.Event{ID: 1, Payload: json.RawMessage(`{"feedback":"wait for operator"}`)}, Worker: model.WorkerSpec{Type: "codex", Model: "fixture", APIKeySecretRef: "LIVE_FIXTURE_KEY"}, Runner: model.RunnerSpec{Type: "e2b", E2B: &model.E2BRunnerSpec{Provider: "novita", Domain: "us-phx-1.sandbox.novita.ai", APIKeySecretRef: "LIVE_SANDBOX_KEY", Template: template, LeaseSeconds: 300, IdleStrategy: "pause"}}}
 	if err = db.Create(&live.session).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +366,7 @@ func TestE2BLiveBatchAndCancellation(t *testing.T) {
 
 func TestE2BLiveCodexDeepSeek(t *testing.T) {
 	live := openE2BLiveRun(t)
-	live.task.Worker = model.WorkerSpec{Type: "codex", Model: "deepseek/deepseek-v4.1-flash-1017", Endpoint: "https://api.novita.ai/openai/v1", APIKeySecretRef: "CLOUDPILOT_LIVE_MODEL_KEY", Instructions: "This is a small runtime integration test. Use shell commands only for the requested files. Do not inspect repositories or make network calls. Keep reasoning and replies brief."}
+	live.task.Worker = model.WorkerSpec{Type: "codex", Model: "deepseek/deepseek-v4.1-flash-1017", Endpoint: "https://api.novita.ai/openai/v1", APIKeySecretRef: "LIVE_MODEL_KEY", Instructions: "This is a small runtime integration test. Use shell commands only for the requested files. Do not inspect repositories or make network calls. Keep reasoning and replies brief."}
 	live.task.Event.Payload = json.RawMessage(`{"feedback":"Use a shell command to write exactly e2b-runtime-state (no newline) to /workspace/live-state.txt and /output/round-one.txt. Write /output/artifacts.json containing {\"artifacts\":[{\"kind\":\"file\",\"name\":\"round one\",\"path\":\"round-one.txt\"}]}. Reply briefly when done."}`)
 	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Minute)
 	defer cancel()

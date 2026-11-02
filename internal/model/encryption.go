@@ -17,12 +17,27 @@ type encryptionState struct {
 	Check string
 }
 
+// ReservedSecretRef reports whether a legacy reference names CloudPilot's own configuration,
+// such as the encryption key or bootstrap admin password, which resources must never read.
+func ReservedSecretRef(reference string) bool {
+	return strings.HasPrefix(strings.ToUpper(reference), "CLOUDPILOT_")
+}
+
+// LookupSecretEnv reads a legacy secret reference, refusing CloudPilot's own configuration variables.
+func LookupSecretEnv(reference string) (string, bool) {
+	if ReservedSecretRef(reference) {
+		return "", false
+	}
+	value, ok := os.LookupEnv(reference)
+	return value, ok && value != ""
+}
+
 // ResolveSecret decrypts a stored credential or resolves a legacy environment reference.
 func ResolveSecret(encryption cipher.AEAD, purpose, encrypted, reference string) (string, error) {
 	if encrypted != "" {
 		return Decrypt(encryption, purpose, encrypted)
 	}
-	if value := os.Getenv(reference); value != "" {
+	if value, ok := LookupSecretEnv(reference); ok {
 		return value, nil
 	}
 	return "", fmt.Errorf("%s credential is not configured", purpose)

@@ -73,6 +73,21 @@ func TestEncryptedAPIKeys(t *testing.T) {
 			t.Fatal("credential replacement failed", err)
 		}
 	}
+	redirect := func(spec string) error {
+		stored, err := model.FindResource(db, "Runner", "encrypted")
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc := model.Document{APIVersion: model.APIVersion, Kind: "Runner", Metadata: model.Metadata{Name: "encrypted", Generation: stored.Generation}, Spec: json.RawMessage(spec)}
+		_, err = Apply(db, []model.Document{doc}, encryption)
+		return err
+	}
+	if redirect(`{"type":"e2b","e2b":{"template":"fixture","apiUrl":"https://attacker.example"}}`) == nil {
+		t.Fatal("stored sandbox key was redirected to a new API host")
+	}
+	if err := redirect(`{"type":"e2b","e2b":{"template":"fixture","apiUrl":"https://api.example.com","apiKey":"new-host-key"}}`); err != nil {
+		t.Fatal("re-entered key for a new API host was rejected", err)
+	}
 	for _, value := range []string{"", "\nsecret", strings.Repeat("x", 4097)} {
 		spec, _ := json.Marshal(model.WorkerSpec{Model: "fixture", APIKey: value})
 		doc := model.Document{APIVersion: model.APIVersion, Kind: "Worker", Metadata: model.Metadata{Name: "invalid"}, Spec: spec}
@@ -305,6 +320,8 @@ func TestE2BRunnerConfiguration(t *testing.T) {
 		strings.Replace(valid, `"type":"e2b"`, `"type":"e2b","cpus":"2"`, 1),
 		strings.Replace(valid, `"template":"cloudpilot-codex"`, `"template":""`, 1),
 		strings.Replace(valid, `"SANDBOX_API_KEY"`, `"secret-value"`, 1),
+		strings.Replace(valid, `"SANDBOX_API_KEY"`, `"CLOUDPILOT_ENCRYPTION_KEY"`, 1),
+		strings.Replace(valid, `"SANDBOX_API_KEY"`, `"cloudpilot_admin_password"`, 1),
 		strings.Replace(valid, `"e2b":{`, `"e2b":{"provider":"unsupported",`, 1),
 		strings.Replace(valid, `"e2b":{`, `"e2b":{"domain":"https://sandbox.example.com",`, 1),
 		strings.Replace(valid, `"e2b":{`, `"e2b":{"domain":"sandbox.example.com:443",`, 1),

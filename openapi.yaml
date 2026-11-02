@@ -183,7 +183,9 @@ paths:
         credential unless apiKeySecretRef explicitly selects a legacy environment variable. A new Worker or E2B Runner
         requires apiKey or a legacy apiKeySecretRef. Input spec.secret and spec.github.token follow the same rules,
         with secretRef and github.tokenSecretRef as legacy alternatives. New Inputs require a webhook secret and
-        github_issue Inputs also require a GitHub token. API responses never return plaintext or encrypted credentials.
+        github_issue Inputs also require a GitHub token. Legacy references and Workspace secretEnv values must not
+        name CLOUDPILOT_* variables. Changing an E2B Runner's provider, domain or apiUrl requires re-entering apiKey.
+        API responses never return plaintext or encrypted credentials.
   /api/resources/{kind}/{name}:
     parameters:
     - $ref: '#/components/parameters/Kind'
@@ -1276,7 +1278,7 @@ components:
           type: string
           pattern: ^[A-Za-z_][A-Za-z0-9_]*$
           deprecated: true
-          description: Legacy server environment variable containing the webhook secret. Explicitly setting this
+          description: Legacy server environment variable (not CLOUDPILOT_*) containing the webhook secret. Explicitly setting this
             reference without a new secret switches back to the environment credential.
         github:
           anyOf:
@@ -1327,7 +1329,7 @@ components:
           type: string
           pattern: ^[A-Za-z_][A-Za-z0-9_]*$
           deprecated: true
-          description: Legacy server environment variable containing the GitHub token. Explicitly setting this
+          description: Legacy server environment variable (not CLOUDPILOT_*) containing the GitHub token. Explicitly setting this
             reference without a new token switches back to the environment credential.
         assignees:
           type:
@@ -1454,7 +1456,7 @@ components:
           type: string
           pattern: ^[A-Za-z_][A-Za-z0-9_]*$
           deprecated: true
-          description: Legacy server environment variable containing the API key; optional when apiKey is supplied.
+          description: Legacy server environment variable (not CLOUDPILOT_*) containing the API key; optional when apiKey is supplied.
         instructions:
           type: string
       required:
@@ -1599,11 +1601,12 @@ components:
           description: Sandbox provider API key, encrypted at rest. Must be a nonblank single line of at most
             4096 bytes. Omit or send an empty string on update to preserve the stored key. A nonempty value replaces
             it and removes apiKeySecretRef. Never returned or injected into the sandbox as a task credential.
+            Must be re-entered when provider, domain or apiUrl changes so a stored key is never sent to a new host.
         apiKeySecretRef:
           type: string
           pattern: ^[A-Za-z_][A-Za-z0-9_]*$
           deprecated: true
-          description: Legacy server environment variable containing the sandbox provider API key;
+          description: Legacy server environment variable (not CLOUDPILOT_*) containing the sandbox provider API key;
             optional when apiKey is supplied.
         template:
           type: string

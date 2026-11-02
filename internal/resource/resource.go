@@ -206,8 +206,8 @@ func validateGitHubInput(s *model.GitHubInputSpec) error {
 	if !ok || !githubOwnerPattern.MatchString(owner) || !githubRepoPattern.MatchString(repo) || repo == "." || repo == ".." {
 		return errors.New("github.repository must be an owner/repo name")
 	}
-	if s.Token == "" && !envPattern.MatchString(s.TokenSecretRef) {
-		return errors.New("github.token is required; tokenSecretRef may reference a legacy environment variable")
+	if s.Token == "" && !validSecretRef(s.TokenSecretRef) {
+		return errors.New("github.token is required; tokenSecretRef may reference a legacy environment variable outside CLOUDPILOT_*")
 	}
 	if len(s.Assignees)+len(s.Labels) == 0 {
 		return errors.New("github.assignees or github.labels must contain at least one trigger filter")
@@ -276,8 +276,8 @@ func normalize(doc, previous model.Document, encryption cipher.AEAD) (model.Docu
 		}
 		if s.Secret != "" {
 			s.SecretRef = ""
-		} else if !envPattern.MatchString(s.SecretRef) {
-			return doc, errors.New("secret is required; secretRef may reference a legacy environment variable")
+		} else if !validSecretRef(s.SecretRef) {
+			return doc, errors.New("secret is required; secretRef may reference a legacy environment variable outside CLOUDPILOT_*")
 		}
 		if s.Type == "github_issue" {
 			if s.GitHub != nil {
@@ -365,8 +365,8 @@ func normalize(doc, previous model.Document, encryption cipher.AEAD) (model.Docu
 		}
 		if s.APIKey != "" {
 			s.APIKeySecretRef = ""
-		} else if !envPattern.MatchString(s.APIKeySecretRef) {
-			return doc, errors.New("apiKey is required; apiKeySecretRef may reference a legacy environment variable")
+		} else if !validSecretRef(s.APIKeySecretRef) {
+			return doc, errors.New("apiKey is required; apiKeySecretRef may reference a legacy environment variable outside CLOUDPILOT_*")
 		}
 		if s.Endpoint != "" && !validHTTPURL(s.Endpoint) {
 			return doc, errors.New("endpoint must be an absolute HTTP(S) URL without embedded credentials")
@@ -402,8 +402,8 @@ func normalize(doc, previous model.Document, encryption cipher.AEAD) (model.Docu
 			}
 		}
 		for name, ref := range s.SecretEnv {
-			if !envPattern.MatchString(name) || !envPattern.MatchString(ref) {
-				return doc, errors.New("secretEnv entries must map environment variable names to secret variable names")
+			if !envPattern.MatchString(name) || !validSecretRef(ref) {
+				return doc, errors.New("secretEnv entries must map environment variable names to secret variable names outside CLOUDPILOT_*")
 			}
 		}
 		for name, server := range s.MCPServers {
@@ -460,11 +460,13 @@ func normalize(doc, previous model.Document, encryption cipher.AEAD) (model.Docu
 					return doc, err
 				}
 			}
+			reused := false
 			if s.E2B != nil {
 				var previousKey string
 				if old.E2B != nil {
 					previousKey = old.E2B.APIKey
 				}
+				reused = s.E2B.APIKey == "" && s.E2B.APIKeySecretRef == "" && previousKey != ""
 				var err error
 				s.E2B.APIKey, err = sealCredential(encryption, doc.Kind, s.E2B.APIKey, s.E2B.APIKeySecretRef, previousKey)
 				if err != nil {
@@ -476,6 +478,10 @@ func normalize(doc, previous model.Document, encryption cipher.AEAD) (model.Docu
 			}
 			if err := normalizeE2B(s.E2B); err != nil {
 				return doc, err
+			}
+			// A stored key is only sent where it was entered; redirecting it would leak it to the new host.
+			if reused && (s.E2B.Provider != old.E2B.Provider || s.E2B.Domain != old.E2B.Domain || s.E2B.APIURL != old.E2B.APIURL) {
+				return doc, errors.New("re-enter e2b apiKey when changing provider, domain or apiUrl")
 			}
 		default:
 			return doc, errors.New("runner type must be docker or e2b")
@@ -520,8 +526,8 @@ func normalizeE2B(s *model.E2BRunnerSpec) error {
 			return errors.New("e2b apiUrl must be an absolute HTTP(S) URL without embedded credentials, query or fragment")
 		}
 	}
-	if s.APIKey == "" && !envPattern.MatchString(s.APIKeySecretRef) {
-		return errors.New("e2b apiKey is required; apiKeySecretRef may reference a legacy environment variable")
+	if s.APIKey == "" && !validSecretRef(s.APIKeySecretRef) {
+		return errors.New("e2b apiKey is required; apiKeySecretRef may reference a legacy environment variable outside CLOUDPILOT_*")
 	}
 	if strings.TrimSpace(s.Template) == "" || len(s.Template) > 255 || strings.ContainsAny(s.Template, " \t\r\n\x00") {
 		return errors.New("e2b template must name a sandbox template with Node.js and Codex installed")
@@ -593,4 +599,9 @@ func validRepositoryURL(value string) bool {
 		return !hasPassword && u.Scheme == "ssh"
 	}
 	return true
+}
+
+// validSecretRef accepts legacy environment references that do not name CloudPilot's own configuration.
+func validSecretRef(value string) bool {
+	return envPattern.MatchString(value) && !model.ReservedSecretRef(value)
 }

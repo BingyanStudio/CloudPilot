@@ -92,6 +92,18 @@ func TestSecretEnvironmentAndLogRedaction(t *testing.T) {
 	if len(messages) != 1 || messages[0] != "split [REDACTED] and [REDACTED]" {
 		t.Fatalf("secret leaked: %q", messages)
 	}
+	// Resources stored before validation existed must still not read CloudPilot's own configuration.
+	t.Setenv("CLOUDPILOT_ENCRYPTION_KEY", "master-key")
+	reserved := task
+	reserved.Worker.APIKeySecretRef = "CLOUDPILOT_ENCRYPTION_KEY"
+	if _, err := (Codex{}).Prepare(reserved); err == nil {
+		t.Fatal("worker credential read a reserved CloudPilot variable")
+	}
+	reserved = task
+	reserved.Workspace.SecretEnv = map[string]string{"LEAK": "CLOUDPILOT_ENCRYPTION_KEY"}
+	if _, _, err := workerEnvironment(reserved, prepared); err == nil {
+		t.Fatal("workspace secretEnv read a reserved CloudPilot variable")
+	}
 	t.Setenv("TEST_CODEX_SECRET", "line1\nline2")
 	prepared, err = (Codex{}).Prepare(task)
 	if err != nil {
