@@ -78,8 +78,7 @@ export default function FlowBoard({ resources }: { resources: Resource[] }) {
   return (
     <div className="panel flow-board">
       <svg
-        width={width}
-        height={height}
+        style={{ minWidth: width, maxWidth: width * 1.4 }}
         viewBox={`0 0 ${width} ${height}`}
         role="group"
         aria-label="资源关系图"
