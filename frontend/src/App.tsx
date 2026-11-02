@@ -44,11 +44,11 @@ interface Navigation {
 }
 const navigation: Navigation[] = [
   { path: '/', label: '运行概览', icon: Dashboard, group: '总览' },
+  { path: '/resources/Runner', label: '运行设施', icon: ContainerSoftware, group: '资源配置' },
+  { path: '/resources/Workspace', label: '工作空间', icon: Code, group: '资源配置' },
+  { path: '/resources/Worker', label: '智能体', icon: Bot, group: '资源配置' },
   { path: '/resources/Pipeline', label: '流水线', icon: Flow, group: '资源配置' },
   { path: '/resources/Input', label: '接入点', icon: Connect, group: '资源配置' },
-  { path: '/resources/Worker', label: '智能体', icon: Bot, group: '资源配置' },
-  { path: '/resources/Workspace', label: '工作空间', icon: Code, group: '资源配置' },
-  { path: '/resources/Runner', label: '运行设施', icon: ContainerSoftware, group: '资源配置' },
   { path: '/events', label: '事件队列', icon: Flow, group: '观测与交付' },
   { path: '/runs', label: '运行记录', icon: Terminal, group: '观测与交付' },
   { path: '/artifacts', label: '产物中心', icon: Document, group: '观测与交付' },

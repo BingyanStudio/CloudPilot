@@ -1,4 +1,5 @@
-export const kinds = ['Input', 'Pipeline', 'Worker', 'Workspace', 'Runner'] as const;
+// Ordered by dependency: each kind only references kinds listed before it.
+export const kinds = ['Runner', 'Workspace', 'Worker', 'Pipeline', 'Input'] as const;
 export type Kind = (typeof kinds)[number];
 export type Spec = Record<string, unknown>;
 export interface Resource {
@@ -125,11 +126,11 @@ export interface Overview {
   runs: Record<string, number>;
 }
 export const kindLabels: Record<Kind, string> = {
-  Input: '接入点',
-  Pipeline: '流水线',
-  Worker: '智能体',
-  Workspace: '工作空间',
   Runner: '运行设施',
+  Workspace: '工作空间',
+  Worker: '智能体',
+  Pipeline: '流水线',
+  Input: '接入点',
 };
 
 export function runnerSpec(type: string): Spec {
