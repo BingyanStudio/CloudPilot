@@ -718,8 +718,8 @@ paths:
       - Agent sessions
       description: Stops active work and removes the session runtime storage. Conversation timeline, logs and previously
         collected artifacts remain in CloudPilot. Cleanup failures remain visible and retryable; this does not undo
-        external changes such as created Issues or PRs. Closing a successful interactive run confirms its task:
-        awaiting_review changes to succeeded only after cleanup succeeds. Failed, cancelled and interrupted work
+        external changes such as created Issues or PRs. Closing a successful interactive run changes
+        awaiting_review to succeeded only after cleanup succeeds, confirming the task. Failed, cancelled and interrupted work
         is not marked successful by closing it.
       responses:
         '202':
