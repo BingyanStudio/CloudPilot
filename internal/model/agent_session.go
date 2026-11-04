@@ -15,17 +15,22 @@ type ExecutionSnapshot struct {
 
 // AgentSession tracks the provider conversation and the retained execution workspace.
 type AgentSession struct {
-	ID            uint            `gorm:"primaryKey" json:"id"`
-	RunID         uint            `gorm:"uniqueIndex" json:"runId"`
-	ThreadID      string          `gorm:"size:190" json:"threadId"`
-	State         string          `gorm:"size:32;index" json:"state"`
-	CurrentTurnID uint            `json:"currentTurnId"`
-	Snapshot      json.RawMessage `gorm:"serializer:json" json:"-"`
-	WorkspaceLost bool            `json:"workspaceLost"`
-	LastError     string          `json:"lastError"`
-	CreatedAt     time.Time       `json:"createdAt"`
-	UpdatedAt     time.Time       `json:"updatedAt"`
-	ClosedAt      *time.Time      `json:"closedAt"`
+	ID             uint            `gorm:"primaryKey" json:"id"`
+	RunID          uint            `gorm:"uniqueIndex" json:"runId"`
+	ThreadID       string          `gorm:"size:190" json:"threadId"`
+	State          string          `gorm:"size:32;index" json:"state"`
+	CurrentTurnID  uint            `json:"currentTurnId"`
+	Snapshot       json.RawMessage `gorm:"serializer:json" json:"-"`
+	WorkspaceLost  bool            `json:"workspaceLost"`
+	LastError      string          `json:"lastError"`
+	InputTokens    int64           `json:"inputTokens"`
+	OutputTokens   int64           `json:"outputTokens"`
+	TotalTokens    int64           `json:"totalTokens"`
+	UsageUpdatedAt *time.Time      `json:"usageUpdatedAt"`
+	LastActivityAt *time.Time      `json:"lastActivityAt"`
+	CreatedAt      time.Time       `json:"createdAt"`
+	UpdatedAt      time.Time       `json:"updatedAt"`
+	ClosedAt       *time.Time      `json:"closedAt"`
 }
 
 // AgentTurn is one durable unit of work within an interactive run.

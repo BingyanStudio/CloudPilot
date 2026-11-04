@@ -31,20 +31,23 @@ type rpcEnvelope struct {
 }
 
 type appServer struct {
-	input   io.Writer
-	writeMu sync.Mutex
-	mu      sync.Mutex
-	next    uint64
-	pending map[string]chan rpcReply
-	ready   chan struct{}
-	done    chan struct{}
-	err     error
-	notify  func(string, json.RawMessage)
-	log     func(string, string)
+	input            io.Writer
+	writeMu          sync.Mutex
+	mu               sync.Mutex
+	next             uint64
+	pending          map[string]chan rpcReply
+	ready            chan struct{}
+	done             chan struct{}
+	err              error
+	notify           func(string, json.RawMessage)
+	log              func(string, string)
+	lastActivity     time.Time
+	reportedActivity time.Time
+	onActivity       func(time.Time)
 }
 
-func connectAppServer(input io.Writer, output io.Reader, notify func(string, json.RawMessage), log func(string, string)) *appServer {
-	client := &appServer{input: input, pending: map[string]chan rpcReply{}, ready: make(chan struct{}), done: make(chan struct{}), notify: notify, log: log}
+func connectAppServer(input io.Writer, output io.Reader, notify func(string, json.RawMessage), log func(string, string), onActivity func(time.Time)) *appServer {
+	client := &appServer{input: input, pending: map[string]chan rpcReply{}, ready: make(chan struct{}), done: make(chan struct{}), notify: notify, log: log, onActivity: onActivity}
 	go client.read(output)
 	return client
 }
@@ -71,6 +74,10 @@ func (c *appServer) read(output io.Reader) {
 			c.log("stdout", scanner.Text())
 			continue
 		}
+		if message.Method == "" && (len(message.ID) == 0 || string(message.ID) == "null") {
+			continue
+		}
+		c.recordActivity()
 		if message.Method != "" {
 			if len(message.ID) > 0 && string(message.ID) != "null" {
 				_ = c.write(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32000, "message": "This CloudPilot session does not support interactive approval or tool-input requests. Use the conversation to supply instructions."}})
@@ -102,6 +109,28 @@ func (c *appServer) read(output io.Reader) {
 		c.err = io.EOF
 	}
 	c.mu.Unlock()
+}
+
+// recordActivity tracks protocol input even when conversation output has been truncated.
+func (c *appServer) recordActivity() {
+	now := time.Now()
+	c.mu.Lock()
+	c.lastActivity = now
+	report := now.Sub(c.reportedActivity) >= time.Second
+	if report {
+		c.reportedActivity = now
+	}
+	c.mu.Unlock()
+	if report && c.onActivity != nil {
+		c.onActivity(now)
+	}
+}
+
+// activityTime returns the latest protocol activity with its monotonic clock reading.
+func (c *appServer) activityTime() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastActivity
 }
 
 func (c *appServer) write(value any) error {
@@ -207,8 +236,15 @@ func (o *sessionObserver) notification(method string, raw json.RawMessage) {
 		Error    *struct {
 			Message string `json:"message"`
 		} `json:"error"`
-		WillRetry bool `json:"willRetry"`
-		Turn      struct {
+		WillRetry  bool `json:"willRetry"`
+		TokenUsage *struct {
+			Total *struct {
+				InputTokens  *int64 `json:"inputTokens"`
+				OutputTokens *int64 `json:"outputTokens"`
+				TotalTokens  *int64 `json:"totalTokens"`
+			} `json:"total"`
+		} `json:"tokenUsage"`
+		Turn struct {
 			ID     string `json:"id"`
 			Status string `json:"status"`
 			Error  *struct {
@@ -236,7 +272,19 @@ func (o *sessionObserver) notification(method string, raw json.RawMessage) {
 	if data.ThreadID != "" && o.threadID != "" && data.ThreadID != o.threadID {
 		return
 	}
+	if data.TurnID != "" && o.turnID != "" && data.TurnID != o.turnID {
+		return
+	}
 	switch method {
+	case "thread/tokenUsage/updated":
+		if o.threadID == "" || data.ThreadID != o.threadID || o.turnID == "" || data.TurnID != o.turnID || data.TokenUsage == nil || data.TokenUsage.Total == nil {
+			return
+		}
+		total := data.TokenUsage.Total
+		if total.InputTokens == nil || total.OutputTokens == nil || total.TotalTokens == nil || *total.InputTokens < 0 || *total.OutputTokens < 0 || *total.TotalTokens < 0 {
+			return
+		}
+		o.emit(engine.SessionUpdate{Usage: &engine.TokenUsage{InputTokens: *total.InputTokens, OutputTokens: *total.OutputTokens, TotalTokens: *total.TotalTokens}})
 	case "turn/started":
 		o.turnID = data.Turn.ID
 		o.emit(engine.SessionUpdate{ProviderTurnID: o.turnID})

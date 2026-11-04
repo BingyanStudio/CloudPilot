@@ -147,7 +147,7 @@ func TestNotificationDoesNotFollowRedirects(t *testing.T) {
 			Body: io.NopCloser(strings.NewReader("redirect")), Request: req,
 		}, nil
 	})}}
-	_, err := notifier.request(context.Background(), http.MethodGet, "https://api.github.com/repos/org/repo/issues/1/comments", "secret", nil)
+	_, err := request(context.Background(), notifier.Client, http.MethodGet, "https://api.github.com/repos/org/repo/issues/1/comments", "secret", nil)
 	if err == nil || !strings.Contains(err.Error(), fmt.Sprint(http.StatusFound)) {
 		t.Fatalf("redirect was accepted: %v", err)
 	}

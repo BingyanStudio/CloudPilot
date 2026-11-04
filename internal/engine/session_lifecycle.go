@@ -10,10 +10,15 @@ import (
 	"gorm.io/gorm"
 )
 
-// CloseSession ends interaction and releases the retained provider workspace.
+// CloseSession confirms successful work and releases the retained provider workspace.
 func (e *Engine) CloseSession(runID uint) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.closeSession(runID)
+}
+
+// closeSession requires e.mu so cancellation cannot race with turn completion.
+func (e *Engine) closeSession(runID uint) error {
 	session, err := e.sessionForAction(runID)
 	if err != nil {
 		return err
@@ -75,6 +80,11 @@ func (e *Engine) releaseSession(task Task, session model.AgentSession) error {
 	persistErr := e.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&session).Updates(updates).Error; err != nil {
 			return err
+		}
+		if state == "closed" && task.Run.Status == "succeeded" {
+			if err := tx.Model(&model.Event{}).Where("id = ? AND status = ?", task.Event.ID, "awaiting_review").Update("status", "succeeded").Error; err != nil {
+				return err
+			}
 		}
 		return tx.Create(&model.SessionEvent{RunID: task.Run.ID, TurnID: session.CurrentTurnID, Type: "status", Status: state, Text: message}).Error
 	})

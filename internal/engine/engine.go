@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sync"
 	"time"
 
@@ -30,13 +31,16 @@ type Task struct {
 }
 
 type execution struct {
-	cancel    context.CancelFunc
-	cancelled bool
-	closing   bool
-	sessionID uint
-	controls  chan SessionControl
-	pending   map[uint]bool
-	failure   string
+	cancel        context.CancelFunc
+	cancelled     bool
+	closing       bool
+	sessionID     uint
+	controls      chan SessionControl
+	pending       map[uint]bool
+	failure       string
+	eventID       uint
+	sourceCheckAt time.Time
+	sourceStopped string
 }
 
 // Engine coordinates a single scheduler instance backed by persistent queue state.
@@ -45,16 +49,20 @@ type Engine struct {
 	Executor     Executor
 	Encryption   cipher.AEAD
 	PollInterval time.Duration
+	GitHubClient *http.Client
 
-	mu      sync.Mutex
-	ctx     context.Context
-	cancel  context.CancelFunc
-	active  map[uint]*execution
-	closing map[uint]bool
-	started bool
-	stopped bool
-	wg      sync.WaitGroup
-	wake    chan struct{}
+	tickMu           sync.Mutex
+	mu               sync.Mutex
+	ctx              context.Context
+	cancel           context.CancelFunc
+	active           map[uint]*execution
+	closing          map[uint]bool
+	started          bool
+	stopped          bool
+	wg               sync.WaitGroup
+	wake             chan struct{}
+	sourceChecksLeft int
+	pipelineOffset   int
 }
 
 // Create configures a scheduler without starting background work.
@@ -140,15 +148,18 @@ func (e *Engine) Trigger(name string) error {
 // Cancel requests cancellation of an execution owned by this scheduler.
 func (e *Engine) Cancel(runID uint) error {
 	e.mu.Lock()
+	defer e.mu.Unlock()
 	var session model.AgentSession
 	if err := e.DB.Where("run_id = ?", runID).First(&session).Error; err == nil {
-		e.mu.Unlock()
-		return e.CloseSession(runID)
+		switch session.State {
+		case "starting", "running", "interrupting", "queued":
+			return e.closeSession(runID)
+		default:
+			return fmt.Errorf("session is %s and cannot be cancelled; use close to end it", session.State)
+		}
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		e.mu.Unlock()
 		return err
 	}
-	defer e.mu.Unlock()
 	if active, ok := e.active[runID]; ok {
 		active.cancelled = true
 		active.cancel()
@@ -217,17 +228,30 @@ func (e *Engine) loop() {
 }
 
 func (e *Engine) tick(now time.Time) error {
+	e.tickMu.Lock()
+	defer e.tickMu.Unlock()
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.stopped || e.ctx.Err() != nil {
 		return context.Canceled
 	}
+	e.sourceChecksLeft = 4
+	if err := e.reconcileGitHub(now); err != nil {
+		return err
+	}
 	var pipelines []model.Resource
 	if err := e.DB.Where("kind = ?", "Pipeline").Order("id").Find(&pipelines).Error; err != nil {
 		return err
 	}
+	if len(pipelines) == 0 {
+		return nil
+	}
+	// Rotate the first pipeline so a sustained backlog cannot monopolize source checks.
+	start := e.pipelineOffset % len(pipelines)
+	e.pipelineOffset = (start + 1) % len(pipelines)
 	var failures []error
-	for _, pipeline := range pipelines {
+	for index := range pipelines {
+		pipeline := pipelines[(start+index)%len(pipelines)]
 		if err := e.dispatch(pipeline, now); err != nil {
 			failures = append(failures, fmt.Errorf("pipeline %s: %w", pipeline.Name, err))
 		}

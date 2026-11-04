@@ -45,20 +45,54 @@ func (e *Engine) dispatchTurns(pipeline string, concurrency int, running int64, 
 		var task Task
 		var session model.AgentSession
 		var turn model.AgentTurn
-		err := e.DB.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Joins("JOIN runs ON runs.id = agent_turns.run_id").Where("runs.pipeline_name = ? AND agent_turns.status = ?", pipeline, "queued").Order("agent_turns.id").First(&turn).Error; err != nil {
-				return err
+		if err := e.DB.Joins("JOIN runs ON runs.id = agent_turns.run_id").Joins("JOIN events ON events.id = runs.event_id").Where("runs.pipeline_name = ? AND agent_turns.status = ? AND events.available_at <= ?", pipeline, "queued", now).Order("events.available_at, agent_turns.id").First(&turn).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				break
 			}
+			return running, err
+		}
+		if err := e.DB.First(&session, turn.SessionID).Error; err != nil {
+			return running, err
+		}
+		task, err := e.sessionTask(e.DB, session)
+		if err != nil {
+			return running, err
+		}
+		eligible, checkErr := e.checkGitHub(task.Event)
+		if errors.Is(checkErr, errSourceCheckBudget) {
+			break
+		}
+		if checkErr != nil {
+			if errors.Is(checkErr, context.Canceled) {
+				return running, checkErr
+			}
+			if err := e.deferGitHubCheck(task.Event, checkErr); err != nil {
+				return running, err
+			}
+			continue
+		}
+		if !eligible {
+			if err := e.rejectGitHubTurn(task, session, turn, now); err != nil {
+				return running, err
+			}
+			continue
+		}
+		allowed, err := e.canDispatch(pipeline)
+		if err != nil || !allowed {
+			return running, err
+		}
+		if err := e.DB.First(&session, turn.SessionID).Error; err != nil {
+			return running, err
+		}
+		if session.State != "queued" || session.CurrentTurnID != turn.ID {
+			continue
+		}
+		err = e.DB.Transaction(func(tx *gorm.DB) error {
 			if err := tx.First(&session, turn.SessionID).Error; err != nil {
 				return err
 			}
 			if session.State != "queued" || session.CurrentTurnID != turn.ID {
 				return errors.New("queued turn does not match session state")
-			}
-			var err error
-			task, err = e.sessionTask(tx, session)
-			if err != nil {
-				return err
 			}
 			executor, ok := e.Executor.(InteractiveExecutor)
 			if !ok || !executor.SupportsInteraction(task) {
@@ -97,7 +131,7 @@ func (e *Engine) launchTurn(task Task, session model.AgentSession, turn model.Ag
 		seconds = 3600
 	}
 	ctx, cancel := context.WithTimeout(e.ctx, time.Duration(seconds)*time.Second)
-	active := &execution{cancel: cancel, sessionID: session.ID, controls: make(chan SessionControl, 32), pending: map[uint]bool{}}
+	active := &execution{cancel: cancel, sessionID: session.ID, controls: make(chan SessionControl, 32), pending: map[uint]bool{}, eventID: task.Event.ID, sourceCheckAt: time.Now().UTC().Add(sourceCheckInterval)}
 	e.active[task.Run.ID] = active
 	e.wg.Go(func() { e.executeTurn(ctx, task, session, turn, active) })
 }
@@ -111,6 +145,11 @@ func (e *Engine) executeTurn(ctx context.Context, task Task, session model.Agent
 		if e.active[task.Run.ID] != active {
 			return
 		}
+		if update.ThreadID != "" && session.ThreadID != "" && update.ThreadID != session.ThreadID {
+			active.failure = "worker changed the session thread ID"
+			active.cancel()
+			return
+		}
 		if update.ThreadID != "" {
 			session.ThreadID = update.ThreadID
 		}
@@ -118,6 +157,24 @@ func (e *Engine) executeTurn(ctx context.Context, task Task, session model.Agent
 			turn.ProviderTurnID = update.ProviderTurnID
 		}
 		err := e.DB.Transaction(func(tx *gorm.DB) error {
+			telemetry := map[string]any{}
+			if !update.ActivityAt.IsZero() && (session.LastActivityAt == nil || update.ActivityAt.After(*session.LastActivityAt)) {
+				activity := update.ActivityAt.UTC()
+				session.LastActivityAt = &activity
+				telemetry["last_activity_at"] = activity
+			}
+			if usage := update.Usage; usage != nil && session.ThreadID != "" && usage.InputTokens >= session.InputTokens && usage.OutputTokens >= session.OutputTokens && usage.TotalTokens >= session.TotalTokens {
+				now := time.Now().UTC()
+				session.InputTokens, session.OutputTokens, session.TotalTokens = usage.InputTokens, usage.OutputTokens, usage.TotalTokens
+				session.UsageUpdatedAt = &now
+				telemetry["input_tokens"], telemetry["output_tokens"], telemetry["total_tokens"] = usage.InputTokens, usage.OutputTokens, usage.TotalTokens
+				telemetry["usage_updated_at"] = now
+			}
+			if len(telemetry) > 0 {
+				if err := tx.Model(&session).Updates(telemetry).Error; err != nil {
+					return err
+				}
+			}
 			if update.ThreadID != "" {
 				if err := tx.Model(&session).Update("thread_id", update.ThreadID).Error; err != nil {
 					return err
@@ -178,7 +235,11 @@ func (e *Engine) executeTurn(ctx context.Context, task Task, session model.Agent
 	active.cancel()
 	closing := active.closing
 	if result.ThreadID != "" {
-		session.ThreadID = result.ThreadID
+		if session.ThreadID != "" && session.ThreadID != result.ThreadID {
+			active.failure = "worker changed the session thread ID"
+		} else {
+			session.ThreadID = result.ThreadID
+		}
 	}
 	if result.ProviderTurnID != "" {
 		turn.ProviderTurnID = result.ProviderTurnID
@@ -195,6 +256,9 @@ func (e *Engine) executeTurn(ctx context.Context, task Task, session model.Agent
 	}
 	if active.failure != "" {
 		state, status, turnStatus, message = "failed", "failed", "failed", active.failure
+	}
+	if active.sourceStopped != "" {
+		state, status, turnStatus, message = "interrupted", "interrupted", "interrupted", active.sourceStopped
 	}
 	if closing {
 		state, status, turnStatus, message = "closing", "cancelled", "interrupted", "session ended by operator"
@@ -246,6 +310,10 @@ func boundedText(text string, maximum int) string {
 
 func (e *Engine) finishTurn(task Task, session model.AgentSession, turn model.AgentTurn, active *execution, state, status, turnStatus, message string, artifacts []model.Artifact) error {
 	now := time.Now().UTC()
+	eventStatus := status
+	if status == "succeeded" {
+		eventStatus = "awaiting_review"
+	}
 	return e.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&session).Updates(map[string]any{"state": state, "last_error": message, "thread_id": session.ThreadID}).Error; err != nil {
 			return err
@@ -256,7 +324,7 @@ func (e *Engine) finishTurn(task Task, session model.AgentSession, turn model.Ag
 		if err := tx.Model(&task.Run).Updates(map[string]any{"status": status, "error": message, "finished_at": now}).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&task.Event).Update("status", status).Error; err != nil {
+		if err := tx.Model(&task.Event).Update("status", eventStatus).Error; err != nil {
 			return err
 		}
 		for id := range active.pending {

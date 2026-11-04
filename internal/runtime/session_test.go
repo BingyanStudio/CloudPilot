@@ -1,8 +1,11 @@
 package runtime
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -13,6 +16,118 @@ import (
 	"github.com/BingyanStudio/CloudPilot/internal/engine"
 	"github.com/BingyanStudio/CloudPilot/internal/model"
 )
+
+// TestSessionActivityTimeout distinguishes silent sessions, protocol activity and disabled detection.
+func TestSessionActivityTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		stall  int
+		active bool
+		thread string
+		want   string
+	}{
+		{name: "silent", stall: 1, want: "stalled"},
+		{name: "active", stall: 1, active: true},
+		{name: "disabled", want: "context deadline exceeded"},
+		{name: "wrong resumed thread", thread: "original", want: "different thread"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			input, commands := io.Pipe()
+			output, responses := io.Pipe()
+			defer input.Close()
+			defer commands.Close()
+			defer output.Close()
+			defer responses.Close()
+			serverDone := make(chan struct{})
+			go func() {
+				defer close(serverDone)
+				defer responses.Close()
+				encoder := json.NewEncoder(responses)
+				_ = encoder.Encode(map[string]bool{"cloudpilotReady": true})
+				scanner := bufio.NewScanner(input)
+				for scanner.Scan() {
+					var request rpcEnvelope
+					if json.Unmarshal(scanner.Bytes(), &request) != nil || len(request.ID) == 0 {
+						continue
+					}
+					result := map[string]any{}
+					switch request.Method {
+					case "thread/start", "thread/resume":
+						result["thread"] = map[string]string{"id": "thread"}
+					case "turn/start":
+						result["turn"] = map[string]string{"id": "turn"}
+					}
+					_ = encoder.Encode(map[string]any{"id": request.ID, "result": result})
+					if request.Method == "turn/start" && tc.active {
+						for range 15 {
+							time.Sleep(100 * time.Millisecond)
+							// Notifications omitted from the timeline must still count as activity.
+							_ = encoder.Encode(map[string]any{"method": "item/reasoning/textDelta", "params": map[string]string{"threadId": "thread", "turnId": "turn", "delta": "thinking"}})
+						}
+						_ = encoder.Encode(map[string]any{"method": "turn/completed", "params": map[string]any{"threadId": "thread", "turn": map[string]string{"id": "turn", "status": "completed"}}})
+					}
+				}
+			}()
+			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+			defer cancel()
+			if tc.name == "disabled" {
+				var stop context.CancelFunc
+				ctx, stop = context.WithTimeout(ctx, 1200*time.Millisecond)
+				defer stop()
+			}
+			var activity time.Time
+			var mu sync.Mutex
+			emit := func(update engine.SessionUpdate) {
+				mu.Lock()
+				defer mu.Unlock()
+				if update.ActivityAt.After(activity) {
+					activity = update.ActivityAt
+				}
+			}
+			transport := sessionTransport{Input: commands, Output: output, Collect: func(context.Context) ([]model.Artifact, error) { return nil, nil }}
+			sink := &logSink{log: func(string, string) {}, redact: func(text string) string { return text }, buffers: map[string][]byte{}, dropping: map[string]bool{}}
+			result, err := executeSession(ctx, engine.Task{Pipeline: model.PipelineSpec{StallTimeoutSeconds: tc.stall}}, model.AgentSession{ThreadID: tc.thread}, model.AgentTurn{ID: 1}, nil, emit, transport, sink, nil)
+			_ = commands.Close()
+			<-serverDone
+			if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+				t.Fatalf("result %+v, error %v; want %q", result, err, tc.want)
+			}
+			if tc.name == "disabled" && !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatal("disabled stall detection changed the total timeout")
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if activity.IsZero() {
+				t.Fatal("protocol activity was not reported")
+			}
+		})
+	}
+}
+
+// TestThreadUsageUsesCurrentCumulativeTotals rejects unrelated and incomplete notifications.
+func TestThreadUsageUsesCurrentCumulativeTotals(t *testing.T) {
+	var reported []engine.TokenUsage
+	observer := &sessionObserver{threadID: "thread", turnID: "turn", emit: func(update engine.SessionUpdate) {
+		if update.Usage != nil {
+			reported = append(reported, *update.Usage)
+		}
+	}}
+	valid := `{"threadId":"thread","turnId":"turn","tokenUsage":{"total":{"inputTokens":10,"outputTokens":5,"totalTokens":15},"last":{"inputTokens":999,"outputTokens":999,"totalTokens":1998}}}`
+	for _, raw := range []string{
+		strings.Replace(valid, `"threadId":"thread"`, `"threadId":"other"`, 1),
+		strings.Replace(valid, `"turnId":"turn"`, `"turnId":"old"`, 1),
+		strings.Replace(valid, `"inputTokens":10,`, "", 1),
+		strings.Replace(valid, `"inputTokens":10`, `"inputTokens":-1`, 1),
+		`{"threadId":"thread","turnId":"turn","tokenUsage":{"last":{"totalTokens":20}}}`,
+		valid,
+	} {
+		observer.notification("thread/tokenUsage/updated", json.RawMessage(raw))
+	}
+	if len(reported) != 1 || reported[0] != (engine.TokenUsage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15}) {
+		t.Fatalf("unexpected usage: %+v", reported)
+	}
+}
 
 func TestStructuredEventsRedactSplitAndEscapedSecrets(t *testing.T) {
 	secret := `token"with\escapes`

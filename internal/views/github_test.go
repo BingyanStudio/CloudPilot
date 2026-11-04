@@ -11,8 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BingyanStudio/CloudPilot/internal/controller"
+	"github.com/BingyanStudio/CloudPilot/internal/engine"
 	"github.com/BingyanStudio/CloudPilot/internal/model"
 	"github.com/BingyanStudio/CloudPilot/internal/views"
 	"github.com/labstack/echo/v5"
@@ -190,6 +192,24 @@ func TestGitHubIssueInput(t *testing.T) {
 	db.Model(&model.GitHubIssueNotification{}).Where("event_id = ?", event.ID).Count(&count)
 	if count != 1 {
 		t.Fatalf("duplicate notifications: %d", count)
+	}
+	app.Engine = engine.Create(db, nil)
+	deferred := time.Now().UTC().Add(time.Hour)
+	if err := db.Model(&event).Update("available_at", deferred).Error; err != nil {
+		t.Fatal(err)
+	}
+	closed := fixture(500, "closed", "closed", "org/repo", `[]`, `[]`)
+	if response := request("github", closed, "issues", "sha256=00"); response.Code != 401 {
+		t.Fatalf("unsigned state change accepted: %d", response.Code)
+	}
+	if err := db.First(&event, event.ID).Error; err != nil || !event.AvailableAt.Equal(deferred) {
+		t.Fatalf("unsigned delivery changed dispatch: %+v, %v", event, err)
+	}
+	if response := request("github", closed, "issues", githubSignature(closed)); response.Code != 200 {
+		t.Fatalf("closed issue was not acknowledged: %d %s", response.Code, response.Body)
+	}
+	if err := db.First(&event, event.ID).Error; err != nil || !event.AvailableAt.Before(deferred) || event.Status != "queued" || event.Attempts != 0 {
+		t.Fatalf("signed delivery did not schedule an API refresh: %+v, %v", event, err)
 	}
 }
 

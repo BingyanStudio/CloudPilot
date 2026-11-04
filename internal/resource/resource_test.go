@@ -190,7 +190,7 @@ func TestManifestApplyRoundTripAndAtomicValidation(t *testing.T) {
 	if err := pipeline.Decode(&spec); err != nil {
 		t.Fatal(err)
 	}
-	if spec.Timezone != "Asia/Shanghai" || spec.Concurrency != 1 || spec.TimeoutSeconds != 3600 {
+	if spec.Timezone != "Asia/Shanghai" || spec.Concurrency != 1 || spec.TimeoutSeconds != 3600 || spec.StallTimeoutSeconds != 0 {
 		t.Fatalf("defaults not applied: %+v", spec)
 	}
 	exported, err := ExportYAML(applied)
@@ -230,6 +230,8 @@ func TestManifestApplyRoundTripAndAtomicValidation(t *testing.T) {
 		strings.Replace(testManifest, "path: app", "path: ../outside", 1),
 		strings.Replace(testManifest, "path: app", "path: .codex/tools", 1),
 		strings.Replace(testManifest, `schedule: "0 20 * * *"`, `schedule: "every night"`, 1),
+		strings.Replace(testManifest, `schedule: "0 20 * * *"`, `stallTimeoutSeconds: -1`, 1),
+		strings.Replace(testManifest, `schedule: "0 20 * * *"`, `stallTimeoutSeconds: 86401`, 1),
 		strings.Replace(testManifest, "secretRef: FEEDBACK_TOKEN", "secretRef: my-secret-value", 1),
 	} {
 		parsed, parseErr := ParseYAML([]byte(input))
@@ -246,7 +248,14 @@ func TestManifestApplyRoundTripAndAtomicValidation(t *testing.T) {
 	if err := Delete(db, "Input", "feedback"); err != nil {
 		t.Fatal(err)
 	}
-	run := model.Run{PipelineName: "nightly", Status: "succeeded"}
+	event := model.Event{PipelineName: "nightly", Status: "awaiting_review", Payload: json.RawMessage(`{}`)}
+	if err := db.Create(&event).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := Delete(db, "Pipeline", "nightly"); !errors.Is(err, ErrReferenced) {
+		t.Fatalf("task awaiting review lost its pipeline: %v", err)
+	}
+	run := model.Run{EventID: event.ID, PipelineName: "nightly", Status: "succeeded"}
 	if err := db.Create(&run).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -258,6 +267,9 @@ func TestManifestApplyRoundTripAndAtomicValidation(t *testing.T) {
 		t.Fatalf("open session pipeline was removed: %v", err)
 	}
 	if err := db.Model(&session).Update("state", "closed").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&event).Update("status", "succeeded").Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := Delete(db, "Pipeline", "nightly"); err != nil {

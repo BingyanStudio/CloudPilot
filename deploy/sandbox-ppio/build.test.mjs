@@ -5,7 +5,17 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-test('template builder handles help, provisioning, build failures and credential redaction', async t => {
+test('PPIO wrappers install the SDK required by the builder', async () => {
+  const builder = await readFile(new URL('build.mjs', import.meta.url), 'utf8');
+  assert.match(builder, /createRequire\(import\.meta\.url\)\('ppio-sandbox'\)/);
+  for (const wrapper of ['build.ps1', 'build.sh']) {
+    const source = await readFile(new URL(wrapper, import.meta.url), 'utf8');
+    assert.match(source, /\bppio-sandbox@2\.1\.2\b/);
+    assert.doesNotMatch(source, /novita-sandbox|Novita/);
+  }
+});
+
+test('PPIO template builder handles help, provisioning, build failures and credential redaction', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'cloudpilot-template-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const builder = path.join(directory, 'build.mjs');
@@ -13,19 +23,19 @@ test('template builder handles help, provisioning, build failures and credential
   await writeFile(path.join(directory, 'install-worker.sh'),
     (await readFile(new URL('install-worker.sh', import.meta.url), 'utf8')).replace(/\r?\n/g, '\r\n'));
   const run = (args, env = {}) => spawnSync(process.execPath, [builder, ...args], {
-    encoding: 'utf8', env: { ...process.env, NOVITA_API_KEY: '', NOVITA_API_KEY_FILE: '', NODE_PATH: '', ...env },
+    encoding: 'utf8', env: { ...process.env, PPIO_API_KEY: '', PPIO_API_KEY_FILE: '', NODE_PATH: '', ...env },
   });
   const help = run(['--help']);
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /--name NAME/);
-  assert.match(run([]).stderr, /Set NOVITA_API_KEY or pass --key-file/);
+  assert.match(run([]).stderr, /Set PPIO_API_KEY or pass --key-file/);
 
-  const sdkDirectory = path.join(directory, 'node_modules', 'novita-sandbox');
+  const sdkDirectory = path.join(directory, 'node_modules', 'ppio-sandbox');
   await mkdir(sdkDirectory, { recursive: true });
   await writeFile(path.join(sdkDirectory, 'index.js'), `
     const assert = require('node:assert/strict');
     const { writeFileSync } = require('node:fs');
-    exports.Novita = class {
+    exports.PPIO = class {
       constructor(config) {
         assert.equal(config.apiKey, 'test-secret');
         const definition = [];
@@ -63,10 +73,12 @@ test('template builder handles help, provisioning, build failures and credential
   assert.ok(!JSON.stringify(capture.definition).includes('test-secret'));
   assert.deepEqual(capture.config, { apiKey: 'test-secret', domain: 'example.test', apiUrl: 'https://api.example.test' });
   assert.equal(capture.name, 'cloudpilot-test');
-  assert.deepEqual(capture.resources, { cpuCount: 2, memoryMB: 2048 });
+  assert.deepEqual(capture.resources, { cpuCount: 8, memoryMB: 8192 });
   assert.deepEqual(capture.definition.filter(([step]) => step === 'setUser'), [['setUser', 'root'], ['setUser', 'user']]);
   assert.deepEqual(capture.definition.find(([step]) => step === 'setWorkdir'), ['setWorkdir', '/workspace']);
-  const install = capture.definition.find(([step]) => step === 'runCmd')[1];
+  const install = capture.definition.find(([step, command]) =>
+    step === 'runCmd' && command.includes('bash coreutils findutils tar git'))?.[1];
+  assert.ok(install, 'worker installer command missing');
   assert.ok(!install.includes('\r'));
   assert.match(install, /bash coreutils findutils tar git/);
   const [, start, check] = capture.definition.find(([step]) => step === 'setStartCmd');

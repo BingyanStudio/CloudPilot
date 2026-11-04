@@ -253,8 +253,8 @@ paths:
           $ref: '#/components/responses/Conflict'
         default:
           $ref: '#/components/responses/Error'
-      description: References from other resources block deletion. Pipelines with queued or running events cannot
-        be deleted.
+      description: References from other resources block deletion. Pipelines with queued, waiting, running or
+        awaiting_review events, or any open agent session, cannot be deleted.
   /api/config/import:
     post:
       summary: Atomically apply multi-document YAML
@@ -376,6 +376,11 @@ paths:
         labeled actions. Any configured assignee or label match qualifies; pull requests and unmatched deliveries
         are acknowledged without creating an event. One event is persisted per Input and repository/issue identity,
         even when a new delivery ID is used. A duplicate returns the original event without requeueing.
+        Authenticated issue deliveries for an existing event trigger a fresh eligibility check, including closed,
+        unlabeled and unassigned actions. Eligibility is checked before initial and follow-up execution and at
+        nominal 30-second intervals while running (at most four API checks per scheduler cycle).
+        Closed or unmatched issues cancel queued events or interrupt retained sessions;
+        API failures defer dispatch without consuming an attempt and do not stop running sessions.
 
         Matching deliveries require server.public_url and the configured GitHub token. The event payload preserves
         the GitHub issue and repository context and adds source: github_issue. A durable background notification
@@ -414,6 +419,7 @@ paths:
           - queued
           - waiting
           - running
+          - awaiting_review
           - succeeded
           - failed
           - cancelled
@@ -712,7 +718,9 @@ paths:
       - Agent sessions
       description: Stops active work and removes the session runtime storage. Conversation timeline, logs and previously
         collected artifacts remain in CloudPilot. Cleanup failures remain visible and retryable; this does not undo
-        external changes such as created Issues or PRs.
+        external changes such as created Issues or PRs. Closing a successful interactive run changes
+        awaiting_review to succeeded only after cleanup succeeds, confirming the task. Failed, cancelled and interrupted work
+        is not marked successful by closing it.
       responses:
         '202':
           description: Operation accepted.
@@ -794,7 +802,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
       description: Legacy cancellation endpoint. For interactive runs this ends the session rather than preserving
-        it for continuation. Use /interrupt to stop only the current turn.
+        it for continuation, and accepts only active or queued turns. It never confirms a successful task;
+        inactive sessions return 409. Use /interrupt to stop only the current turn or /close to confirm completion.
   /api/artifacts:
     get:
       summary: List the newest 200 artifacts
@@ -1320,7 +1329,7 @@ components:
           format: password
           writeOnly: true
           maxLength: 4096
-          description: GitHub token with repository Issues read/write permission, used for acknowledgement comments.
+          description: GitHub token with repository Issues read/write permission, used for acknowledgement comments and eligibility checks.
             Required on creation unless a legacy tokenSecretRef is supplied. Encrypted at rest and omitted from reads
             and exports. Omit or send an empty string to preserve the stored token. Not passed to the agent.
         tokenSecretRef:
@@ -1423,6 +1432,14 @@ components:
           default: 3600
           description: Execution timeout; applied independently to each interactive turn using the session configuration
             snapshot.
+        stallTimeoutSeconds:
+          type: integer
+          minimum: 0
+          maximum: 86400
+          default: 0
+          description: Maximum interval without app-server protocol activity during an active interactive turn.
+            Zero or omission disables detection, including legacy session snapshots. Independent of timeoutSeconds;
+            stalled turns fail and retain the session without automatic replay. New WebUI templates suggest 300 seconds.
       required:
       - workerRef
       - workspaceRef
@@ -1630,6 +1647,8 @@ components:
       additionalProperties: false
     Event:
       type: object
+      description: Interactive work awaits operator review after a successful turn. Explicit session closure
+        confirms completion after cleanup succeeds. Existing historical succeeded events are not migrated.
       properties:
         id:
           type: integer
@@ -1644,6 +1663,7 @@ components:
           - queued
           - waiting
           - running
+          - awaiting_review
           - succeeded
           - failed
           - cancelled
@@ -1686,6 +1706,8 @@ components:
       - runs
     Run:
       type: object
+      description: Execution state. A succeeded interactive run can still have an event awaiting_review;
+        successful execution does not by itself confirm task completion.
       properties:
         id:
           type: integer
@@ -2016,6 +2038,32 @@ components:
             is disabled; close this session before starting a fresh run.
         lastError:
           type: string
+        inputTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        outputTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        totalTokens:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Latest accepted cumulative provider-thread usage, never a sum of repeated reports.
+            Token counts are unavailable until usageUpdatedAt is non-null and are not a billing statement.
+        usageUpdatedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: Null when the provider has not supplied cumulative token usage.
+        lastActivityAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: Latest observed app-server protocol activity; persisted at most once per second and at turn exit.
         createdAt:
           type: string
           format: date-time
@@ -2035,6 +2083,11 @@ components:
       - currentTurnId
       - workspaceLost
       - lastError
+      - inputTokens
+      - outputTokens
+      - totalTokens
+      - usageUpdatedAt
+      - lastActivityAt
       - createdAt
       - updatedAt
       - closedAt

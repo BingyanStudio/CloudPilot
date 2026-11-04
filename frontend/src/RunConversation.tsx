@@ -25,7 +25,7 @@ const sessionDescriptions: Record<string, string> = {
   queued: '下一轮已排队，等待流水线调度。工作目录和对话会继续保留。',
   running: 'Agent 正在执行。你可以补充信息，或中断当前轮次后调整方向。',
   interrupting: '正在中断当前轮次。工作目录和对话会保留，完成后可继续。',
-  idle: '本轮已完成。可以追加需求并继续，或结束任务释放工作目录。',
+  idle: '本轮执行成功。请检查结果，可以补充信息继续处理，或确认任务完成并结束会话。',
   interrupted: '当前轮次已中断。已有对话和工作目录保留，可补充信息后继续。',
   failed: '本轮执行失败。可以查看错误并尝试继续，或结束任务。',
   closing: '正在停止执行并清理会话工作目录。',
@@ -38,6 +38,7 @@ export default function RunConversation({
   turns,
   artifacts,
   capabilities,
+  confirmCompletion,
   busy,
   actionError,
   perform,
@@ -48,6 +49,7 @@ export default function RunConversation({
   turns: AgentTurn[];
   artifacts: Artifact[];
   capabilities: SessionCapabilities;
+  confirmCompletion: boolean;
   busy: boolean;
   actionError: string;
   perform: Action;
@@ -145,6 +147,14 @@ export default function RunConversation({
             <Status value={state} />
           </div>
           <p>{sessionDescriptions[state] || '会话状态正在更新。'}</p>
+          {session && (
+            <p>
+              最近活动：{formatTime(session.lastActivityAt)} · Token：
+              {session.usageUpdatedAt
+                ? `${session.totalTokens.toLocaleString()}（输入 ${session.inputTokens.toLocaleString()} / 输出 ${session.outputTokens.toLocaleString()}）`
+                : '未提供'}
+            </p>
+          )}
         </div>
         <div className="session-controls">
           {capabilities.canInterrupt && (
@@ -166,7 +176,7 @@ export default function RunConversation({
               disabled={busy}
               onClick={() => setClosing(true)}
             >
-              结束任务
+              {confirmCompletion ? '确认完成并结束' : '结束任务'}
             </Button>
           )}
         </div>
@@ -326,8 +336,10 @@ export default function RunConversation({
       <Modal
         open={closing}
         danger
-        modalHeading="结束任务并释放工作目录？"
-        primaryButtonText="结束任务"
+        modalHeading={
+          confirmCompletion ? '确认任务完成并释放工作目录？' : '结束任务并释放工作目录？'
+        }
+        primaryButtonText={confirmCompletion ? '确认完成并结束' : '结束任务'}
         secondaryButtonText="返回"
         primaryButtonDisabled={busy}
         onRequestClose={() => setClosing(false)}
@@ -338,10 +350,13 @@ export default function RunConversation({
         }
       >
         <p>
-          这会停止当前执行，并清理会话和仓库工作目录。对话记录、日志和已收集的产物会保留，之后无法继续这个会话。
+          {confirmCompletion ? '确认结果符合要求后，清理成功会将任务标为已完成。' : '这会停止当前执行。'}
+          会话和仓库工作目录会被清理，对话记录、日志和已收集的产物会保留，之后无法继续这个会话。
         </p>
         <p className="close-session-note">
-          如果还需要补充信息，请使用“中断当前轮次”，它会保留工作现场。
+          {confirmCompletion
+            ? '如果结果需要调整，请返回并发送补充信息继续处理。'
+            : '如果还需要补充信息，请保留会话并继续处理；运行中可先中断当前轮次。'}
         </p>
         <ErrorNotice error={actionError} />
       </Modal>
