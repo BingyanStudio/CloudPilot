@@ -52,6 +52,8 @@ docker compose up --build -d
 
 管理界面位于 <http://localhost:8080>。Compose 默认只向本机暴露 8080 和 9090；Metrics 使用独立端口 <http://localhost:9090/metrics>。数据库和文件产物持久化在 `cloudpilot-data` 卷。配置文件通过只读挂载提供；修改后重启服务。
 
+执行指标复用同一 Metrics 端口：`cloudpilot_events{status}`、`cloudpilot_agent_sessions{state}` 统计任务和会话状态，`cloudpilot_agent_tokens{kind}` 汇总会话已上报的 input/output/total token，`cloudpilot_agent_usage_sessions` 表示已上报用量的会话数。它们是数据库快照 Gauge，最多每五分钟刷新一次，不带任务或 thread ID 标签；尚未上报的用量不计入汇总。查询失败时保留上次快照，`cloudpilot_execution_metrics_up` 变为 0，`cloudpilot_execution_metrics_updated_timestamp_seconds` 保留最后成功采样时间。
+
 模型和沙箱 API key 在 Worker、Runner 编辑页直接填写；Webhook 验证密钥和 GitHub Token 在接入点编辑页直接填写。凭据加密保存，读取和导出不回显，保存后无需重启。旧环境变量引用继续兼容；填写直接凭据后会替换对应引用。
 
 Compose 默认挂载 Docker socket，Docker runner 使用 Docker CLI 和 `/var/run/docker.sock` 创建执行容器。执行容器使用 `docker cp` 接收工作配置、返回产物，无需映射服务容器内部的主机路径，也不挂载 Docker socket。自定义 `DOCKER_HOST` 时应确保服务能访问对应 daemon；运行镜像必须存在于该 daemon 或可从镜像仓库拉取。

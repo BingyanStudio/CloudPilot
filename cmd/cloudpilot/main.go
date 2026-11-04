@@ -89,6 +89,7 @@ func serve(ctx context.Context, path string) error {
 	var metricListener net.Listener
 	if cfg.Metrics.Address != "" {
 		registry := metrics.RegisterDatabase(sqlDB)
+		metrics.RegisterExecution(registry, db)
 		e.Use(metrics.HTTPMiddleware(registry))
 		metricListener, err = net.Listen("tcp", cfg.Metrics.Address)
 		if err != nil {
