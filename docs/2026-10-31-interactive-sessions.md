@@ -11,6 +11,7 @@ Codex 通过 Docker 或 E2B runner 使用 app-server 会话处理反馈。首次
 | 发送补充信息 | 正在执行时引导当前轮次；会话空闲、中断或失败时，排队开始下一轮 |
 | 中断当前轮次 | 请求 Agent 停止当前轮次，保留会话和工作目录 |
 | 继续执行 | 在原会话、原工作目录中开始新的一轮，可附加说明 |
+| 确认完成并结束 | 确认成功轮次的任务结果，清理工作目录成功后将任务标为已完成 |
 | 结束任务 | 停止活动执行并删除保留的会话工作目录；历史日志、时间线和已收集产物保留 |
 | 重新入队 | 关闭原会话后，为失败、取消或中断的事件创建新的 Run，从头执行 |
 
@@ -20,7 +21,7 @@ Codex 通过 Docker 或 E2B runner 使用 app-server 会话处理反馈。首次
 
 ## 完成、排队和关闭
 
-一次 Agent 轮次自然结束时，Run 和 Event 变为 `succeeded`，会话变为 `idle`，并收集本轮产物。因此“运行成功”与“会话仍可继续”可以同时成立。会话空闲时，Docker 删除执行容器、E2B 暂停 sandbox，均不占用 Pipeline 的并发额度；工作目录和 Codex 会话数据继续保留。
+一次 Agent 轮次自然结束时，Run 变为 `succeeded`、Event 变为 `awaiting_review`，会话变为 `idle`，并收集本轮产物。检查结果后可继续处理，或“确认完成并结束”；只有工作目录清理成功，Event 才变为 `succeeded`。会话空闲时，Docker 删除执行容器、E2B 暂停 sandbox，均不占用 Pipeline 的并发额度；工作目录和 Codex 会话数据继续保留。
 
 人工继续会将 Run 设为 `queued`、Event 设为 `waiting`，并创建状态为 `queued` 的下一轮。它不需要等待下一次 cron 触发，但仍遵守 Pipeline 当前的暂停状态和并发限制。相同会话不会并行执行两轮，活动轮次中的补充信息也不会额外占用并发额度。
 
@@ -28,11 +29,12 @@ Codex 通过 Docker 或 E2B runner 使用 app-server 会话处理反馈。首次
 | --- | --- | --- |
 | 轮次执行中 | `running` | `running` |
 | 人工继续等待调度 | `queued` / `waiting` | `queued` |
-| 自然完成 | `succeeded` | `idle` |
+| 本轮执行成功，等待确认 | `succeeded` / `awaiting_review` | `idle` |
 | 人工中断或服务中断 | `interrupted` | `interrupted` |
 | 超时或执行错误 | `failed` | `failed` |
 | 清理会话存储中 | 保留结果或变为 `cancelled` | `closing` |
-| 已结束会话 | 保留结果或变为 `cancelled` | `closed` |
+| 成功任务确认并清理完成 | `succeeded` | `closed` |
+| 失败、中断或活动任务被结束 | 保留失败结果或变为 `cancelled` | `closed` |
 
 已经建立 Codex thread 的轮次失败后保留现场，等待人工继续，不使用 `maxRetries` 自动重放；人工追加的轮次也不自动重试。首次执行在 thread 创建前失败时，只有成功清理尚未建立对话的会话存储后，才会按 `maxRetries` 和退避策略重新入队。清理失败会保留 `closing` 状态和错误，等待管理员重试结束。批处理适配器仍按 Pipeline 的重试策略执行。每轮执行有独立超时，使用初始会话快照中的 `timeoutSeconds`。
 
@@ -49,7 +51,7 @@ Codex 通过 Docker 或 E2B runner 使用 app-server 会话处理反馈。首次
 | `POST /api/runs/:id/messages` | 提交 `{"message":"补充说明"}` |
 | `POST /api/runs/:id/interrupt` | 中断当前轮次 |
 | `POST /api/runs/:id/resume` | 提交可选的 `{"message":"继续说明"}`，空输入使用默认继续指令 |
-| `POST /api/runs/:id/close` | 明确结束会话并清理其运行存储 |
+| `POST /api/runs/:id/close` | 明确结束会话并清理运行存储；成功任务在清理成功后确认完成 |
 
 人工输入最多为 32 KiB UTF-8 文本。不存在的 Run 返回 404；不支持的交互或状态已变化的操作返回 409；输入格式错误返回 400。操作接受后返回 202，最终状态通过运行详情和时间线查询。
 
@@ -65,7 +67,7 @@ E2B 为每个 AgentSession 保留独立的远端 sandbox，每轮启动新进程
 
 服务启动时由各 runner 核对当前部署的遗留执行环境。被中断的活动轮次标记为 `interrupted`，不会自动重放；已排队的人工作业继续等待调度。保留的工作目录、Codex thread ID 和会话文件用于继续执行。Docker 部署标识保存在 `runtime.data_dir/runtime-id`，E2B 标识保存在 `runtime.data_dir/e2b/runtime-id`，恢复时必须与数据库、完整数据目录及对应的卷或远端实例一起保留。远端 sandbox 已删除或过期时，会话标记为工作目录丢失，不能用一个空实例继续原对话。
 
-结束任务时，如果清理失败，会话停留在 `closing` 并记录错误，管理员可以再次请求结束。不要把尚未成功清理的会话视为已释放存储。需要回收存储时，通过运行详情结束不再使用的会话；直接删除卷或远端 sandbox 会使对应会话失去可恢复的工作目录。
+结束任务时，如果清理失败，会话停留在 `closing` 并记录错误，管理员可以再次请求结束；待确认任务仍为 `awaiting_review`。不要把尚未成功清理的会话视为已释放存储。需要回收存储时，通过运行详情结束不再使用的会话；直接删除卷或远端 sandbox 会使对应会话失去可恢复的工作目录。历史已有的 `succeeded` 事件保留原状态，后续继续执行会采用新的待确认语义。
 
 ## 执行器扩展
 

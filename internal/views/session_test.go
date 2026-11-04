@@ -185,6 +185,7 @@ func TestInteractiveSessionAPI(t *testing.T) {
 	response = request(http.MethodGet, base, "", true, "")
 	var detail struct {
 		Run          model.Run           `json:"run"`
+		Event        model.Event         `json:"event"`
 		Session      *model.AgentSession `json:"session"`
 		Capabilities engine.Capabilities `json:"capabilities"`
 		Turns        []model.AgentTurn   `json:"turns"`
@@ -213,6 +214,15 @@ func TestInteractiveSessionAPI(t *testing.T) {
 		var session model.AgentSession
 		return db.Where("run_id = ?", first.RunID).First(&session).Error == nil && session.State == "idle"
 	})
+	response = request(http.MethodGet, base, "", true, "")
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &detail) != nil || detail.Run.Status != "succeeded" || detail.Event.Status != "awaiting_review" {
+		t.Fatalf("successful execution must await task confirmation: %d %s", response.Code, response.Body)
+	}
+	response = request(http.MethodGet, "/api/events?status=awaiting_review", "", true, "")
+	var waiting []model.Event
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &waiting) != nil || len(waiting) != 1 || waiting[0].ID != event.ID {
+		t.Fatalf("awaiting-review filter omitted the task: %d %s", response.Code, response.Body)
+	}
 	response = request(http.MethodGet, base+"/timeline", "", true, "")
 	var events []model.SessionEvent
 	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &events) != nil || len(events) == 0 {
@@ -238,6 +248,9 @@ func TestInteractiveSessionAPI(t *testing.T) {
 	})
 	if fixture.closed.Load() != 1 {
 		t.Fatalf("session runtime cleanup count %d", fixture.closed.Load())
+	}
+	if err := db.First(&event, event.ID).Error; err != nil || event.Status != "succeeded" {
+		t.Fatalf("closed successful task was not confirmed: %+v %v", event, err)
 	}
 	if response := request(http.MethodPost, base+"/resume", "", true, ""); response.Code != http.StatusConflict {
 		t.Fatalf("closed session accepted resume: %d %s", response.Code, response.Body)
@@ -296,7 +309,7 @@ func TestRunDetailReadsConsistentCompletionSnapshot(t *testing.T) {
 			for _, update := range []struct {
 				record        any
 				column, value string
-			}{{&run, "status", "succeeded"}, {&event, "status", "succeeded"}, {&session, "state", "idle"}, {&turn, "status", "completed"}} {
+			}{{&run, "status", "succeeded"}, {&event, "status", "awaiting_review"}, {&session, "state", "idle"}, {&turn, "status", "completed"}} {
 				if err := tx.Model(update.record).Update(update.column, update.value).Error; err != nil {
 					return err
 				}
@@ -333,7 +346,7 @@ func TestRunDetailReadsConsistentCompletionSnapshot(t *testing.T) {
 		t.Fatal("run detail mixed pre-completion and post-completion rows")
 	}
 	lastRun, lastEvent, lastSession, lastTurns, lastArtifacts := read()
-	if lastRun.Status != "succeeded" || lastEvent.Status != "succeeded" || lastSession == nil || lastSession.State != "idle" || len(lastTurns) != 1 || lastTurns[0].Status != "completed" || len(lastArtifacts) != 1 {
+	if lastRun.Status != "succeeded" || lastEvent.Status != "awaiting_review" || lastSession == nil || lastSession.State != "idle" || len(lastTurns) != 1 || lastTurns[0].Status != "completed" || len(lastArtifacts) != 1 {
 		t.Fatal("completed run detail did not include its final artifacts and turn state")
 	}
 }

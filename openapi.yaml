@@ -253,8 +253,8 @@ paths:
           $ref: '#/components/responses/Conflict'
         default:
           $ref: '#/components/responses/Error'
-      description: References from other resources block deletion. Pipelines with queued or running events cannot
-        be deleted.
+      description: References from other resources block deletion. Pipelines with queued, waiting, running or
+        awaiting_review events, or any open agent session, cannot be deleted.
   /api/config/import:
     post:
       summary: Atomically apply multi-document YAML
@@ -414,6 +414,7 @@ paths:
           - queued
           - waiting
           - running
+          - awaiting_review
           - succeeded
           - failed
           - cancelled
@@ -712,7 +713,9 @@ paths:
       - Agent sessions
       description: Stops active work and removes the session runtime storage. Conversation timeline, logs and previously
         collected artifacts remain in CloudPilot. Cleanup failures remain visible and retryable; this does not undo
-        external changes such as created Issues or PRs.
+        external changes such as created Issues or PRs. Closing a successful interactive run confirms its task:
+        awaiting_review changes to succeeded only after cleanup succeeds. Failed, cancelled and interrupted work
+        is not marked successful by closing it.
       responses:
         '202':
           description: Operation accepted.
@@ -1630,6 +1633,8 @@ components:
       additionalProperties: false
     Event:
       type: object
+      description: Interactive work awaits operator review after a successful turn. Explicit session closure
+        confirms completion after cleanup succeeds. Existing historical succeeded events are not migrated.
       properties:
         id:
           type: integer
@@ -1644,6 +1649,7 @@ components:
           - queued
           - waiting
           - running
+          - awaiting_review
           - succeeded
           - failed
           - cancelled
@@ -1686,6 +1692,8 @@ components:
       - runs
     Run:
       type: object
+      description: Execution state. A succeeded interactive run can still have an event awaiting_review;
+        successful execution does not by itself confirm task completion.
       properties:
         id:
           type: integer

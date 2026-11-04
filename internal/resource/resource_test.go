@@ -246,7 +246,14 @@ func TestManifestApplyRoundTripAndAtomicValidation(t *testing.T) {
 	if err := Delete(db, "Input", "feedback"); err != nil {
 		t.Fatal(err)
 	}
-	run := model.Run{PipelineName: "nightly", Status: "succeeded"}
+	event := model.Event{PipelineName: "nightly", Status: "awaiting_review", Payload: json.RawMessage(`{}`)}
+	if err := db.Create(&event).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := Delete(db, "Pipeline", "nightly"); !errors.Is(err, ErrReferenced) {
+		t.Fatalf("task awaiting review lost its pipeline: %v", err)
+	}
+	run := model.Run{EventID: event.ID, PipelineName: "nightly", Status: "succeeded"}
 	if err := db.Create(&run).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -258,6 +265,9 @@ func TestManifestApplyRoundTripAndAtomicValidation(t *testing.T) {
 		t.Fatalf("open session pipeline was removed: %v", err)
 	}
 	if err := db.Model(&session).Update("state", "closed").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&event).Update("status", "succeeded").Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := Delete(db, "Pipeline", "nightly"); err != nil {

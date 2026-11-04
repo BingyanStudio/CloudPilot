@@ -30,6 +30,7 @@ type interactiveExecutor struct {
 	maximum               atomic.Int32
 	setup                 bool
 	close                 func() error
+	turnError             error
 	transportCancellation bool
 }
 
@@ -57,7 +58,7 @@ func (f *interactiveExecutor) ExecuteTurn(ctx context.Context, task Task, sessio
 	f.started <- call
 	select {
 	case result.Interrupted = <-call.Finish:
-		return result, nil
+		return result, f.turnError
 	case <-ctx.Done():
 		if f.transportCancellation {
 			return result, errors.New("docker attach: signal killed")
@@ -111,8 +112,8 @@ func TestFollowupUsesSnapshotAndHonorsConcurrencyAndPause(t *testing.T) {
 	first := nextTurn(t, executor)
 	first.Finish <- false
 	waitSession(t, db, first.Task.Run.ID, "idle")
-	if eventStatus(t, db, firstEvent.ID) != "succeeded" {
-		t.Fatal("natural completion must preserve automatic workflow success")
+	if eventStatus(t, db, firstEvent.ID) != "awaiting_review" {
+		t.Fatal("natural completion must wait for task confirmation")
 	}
 	updatePipeline(t, db, true)
 	workspace, _ := model.FindResource(db, "Workspace", "workspace")
@@ -152,6 +153,59 @@ func TestFollowupUsesSnapshotAndHonorsConcurrencyAndPause(t *testing.T) {
 	}
 	second.Finish <- false
 	waitSession(t, db, second.Task.Run.ID, "idle")
+	if eventStatus(t, db, firstEvent.ID) != "awaiting_review" {
+		t.Fatal("successful follow-up must wait for task confirmation again")
+	}
+}
+
+func TestCloseConfirmsSuccessfulTaskOnlyAfterCleanup(t *testing.T) {
+	for _, test := range []struct {
+		name, state, before, after string
+		turnError                  error
+		interrupted                bool
+	}{
+		{name: "success", state: "idle", before: "awaiting_review", after: "succeeded"},
+		{name: "failure", state: "failed", before: "failed", after: "failed", turnError: errors.New("worker failed")},
+		{name: "interruption", state: "interrupted", before: "interrupted", after: "cancelled", interrupted: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var closes atomic.Int32
+			executor := &interactiveExecutor{started: make(chan *interactiveCall, 1), turnError: test.turnError, close: func() error {
+				if closes.Add(1) == 1 {
+					return errors.New("workspace cleanup unavailable")
+				}
+				return nil
+			}}
+			db, scheduler := fixture(t, model.PipelineSpec{Concurrency: 1}, executor)
+			event := enqueue(t, db, time.Now().UTC())
+			if err := scheduler.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			call := nextTurn(t, executor)
+			call.Finish <- test.interrupted
+			waitSession(t, db, call.Task.Run.ID, test.state)
+			if status := eventStatus(t, db, event.ID); status != test.before {
+				t.Fatalf("event status before close = %s, want %s", status, test.before)
+			}
+			if err := scheduler.CloseSession(call.Task.Run.ID); err != nil {
+				t.Fatal(err)
+			}
+			eventually(t, func() bool {
+				session, capabilities, err := scheduler.SessionInfo(call.Task.Run.ID)
+				return err == nil && session.State == "closing" && session.LastError != "" && capabilities.CanClose
+			})
+			if status := eventStatus(t, db, event.ID); status == "succeeded" {
+				t.Fatal("cleanup failure confirmed the task")
+			}
+			if err := scheduler.CloseSession(call.Task.Run.ID); err != nil {
+				t.Fatal(err)
+			}
+			waitSession(t, db, call.Task.Run.ID, "closed")
+			if status := eventStatus(t, db, event.ID); status != test.after {
+				t.Fatalf("event status after close = %s, want %s", status, test.after)
+			}
+		})
+	}
 }
 
 func TestUnacknowledgedSteerIsRejectedAndRecoveryPreservesQueuedTurn(t *testing.T) {

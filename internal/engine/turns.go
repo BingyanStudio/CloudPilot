@@ -246,6 +246,10 @@ func boundedText(text string, maximum int) string {
 
 func (e *Engine) finishTurn(task Task, session model.AgentSession, turn model.AgentTurn, active *execution, state, status, turnStatus, message string, artifacts []model.Artifact) error {
 	now := time.Now().UTC()
+	eventStatus := status
+	if status == "succeeded" {
+		eventStatus = "awaiting_review"
+	}
 	return e.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&session).Updates(map[string]any{"state": state, "last_error": message, "thread_id": session.ThreadID}).Error; err != nil {
 			return err
@@ -256,7 +260,7 @@ func (e *Engine) finishTurn(task Task, session model.AgentSession, turn model.Ag
 		if err := tx.Model(&task.Run).Updates(map[string]any{"status": status, "error": message, "finished_at": now}).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&task.Event).Update("status", status).Error; err != nil {
+		if err := tx.Model(&task.Event).Update("status", eventStatus).Error; err != nil {
 			return err
 		}
 		for id := range active.pending {

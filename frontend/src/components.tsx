@@ -96,6 +96,7 @@ const statuses: Record<
 > = {
   queued: { label: '等待调度', color: 'blue' },
   waiting: { label: '等待继续', color: 'blue' },
+  awaiting_review: { label: '待确认', color: 'purple' },
   starting: { label: '准备会话', color: 'blue' },
   running: { label: '运行中', color: 'purple' },
   succeeded: { label: '已完成', color: 'green' },
@@ -171,7 +172,7 @@ export function RunTable({ runs }: { runs: Run[] }) {
               </TableCell>
               <TableCell>{run.pipelineName}</TableCell>
               <TableCell>
-                <Status value={run.status} />
+                <Status value={run.status} label={run.status === 'succeeded' ? '执行成功' : undefined} />
               </TableCell>
               <TableCell>
                 <span className="mono">{run.workerName}</span>

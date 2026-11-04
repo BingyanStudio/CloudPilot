@@ -178,11 +178,11 @@ func Delete(db *gorm.DB, kind, name string) error {
 		}
 		if kind == "Pipeline" {
 			var count int64
-			if err := tx.Model(&model.Event{}).Where("pipeline_name = ? AND status IN ?", name, []string{"queued", "running"}).Count(&count).Error; err != nil {
+			if err := tx.Model(&model.Event{}).Where("pipeline_name = ? AND status IN ?", name, []string{"queued", "waiting", "running", "awaiting_review"}).Count(&count).Error; err != nil {
 				return err
 			}
 			if count > 0 {
-				return fmt.Errorf("%w by queued or running events", ErrReferenced)
+				return fmt.Errorf("%w by unfinished events", ErrReferenced)
 			}
 			if err := tx.Model(&model.AgentSession{}).Joins("JOIN runs ON runs.id = agent_sessions.run_id").Where("runs.pipeline_name = ? AND agent_sessions.state <> ?", name, "closed").Count(&count).Error; err != nil {
 				return err

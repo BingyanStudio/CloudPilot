@@ -81,8 +81,18 @@ export function Dashboard() {
       color: 'purple',
     },
     {
-      label: '运行完成',
+      label: '执行成功',
       value: overview.data?.runs.succeeded ?? 0,
+      color: 'green',
+    },
+    {
+      label: '任务待确认',
+      value: overview.data?.events.awaiting_review ?? 0,
+      color: 'purple',
+    },
+    {
+      label: '任务已完成',
+      value: overview.data?.events.succeeded ?? 0,
       color: 'green',
     },
     {
@@ -662,7 +672,7 @@ function Filters({
       >
         <SelectItem value="" text="全部状态" />
         {(events
-          ? ['queued', 'waiting', 'running', 'interrupted', 'succeeded', 'failed', 'cancelled']
+          ? ['queued', 'waiting', 'running', 'awaiting_review', 'interrupted', 'succeeded', 'failed', 'cancelled']
           : ['queued', 'running', 'interrupted', 'succeeded', 'failed', 'cancelled']
         ).map((value) => (
           <SelectItem
@@ -672,9 +682,10 @@ function Filters({
               {
                 queued: '等待调度',
                 waiting: '等待继续',
+                awaiting_review: '待确认',
                 interrupted: '已中断',
                 running: '运行中',
-                succeeded: '已完成',
+                succeeded: events ? '已完成' : '执行成功',
                 failed: '失败',
                 cancelled: '已取消',
               }[value] || value
@@ -888,7 +899,8 @@ export function RunPage({ id }: { id: string }) {
         description={`事件 EVT-${event.id} · 第 ${run.attempt} 次尝试 · ${formatTime(run.startedAt)} 开始（Asia/Shanghai）`}
         actions={
           <>
-            <Status value={run.status} />
+            <Status value={run.status} label={run.status === 'succeeded' ? '执行成功' : undefined} />
+            {event.status === 'awaiting_review' && <Status value={event.status} />}
             {canEdit && status === 'running' && !interactive && (
               <Button
                 kind="danger--tertiary"
@@ -939,6 +951,9 @@ export function RunPage({ id }: { id: string }) {
           turns={turns}
           artifacts={artifacts}
           capabilities={capabilities}
+          confirmCompletion={
+            run.status === 'succeeded' && ['awaiting_review', 'succeeded'].includes(event.status)
+          }
           busy={busy}
           actionError={actionError}
           perform={act}
