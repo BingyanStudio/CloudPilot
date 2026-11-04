@@ -27,7 +27,7 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm --dir frontend install --frozen-lockfile
       - run: pnpm --dir frontend build
-      - run: node --test deploy/sandbox/build.test.mjs
+      - run: node --test deploy/sandbox/build.test.mjs deploy/sandbox-ppio/build.test.mjs
       - run: go mod download
       - run: go test -race ./...
       - run: CGO_ENABLED=0 go test ./...
