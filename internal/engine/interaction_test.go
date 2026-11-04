@@ -388,12 +388,39 @@ func TestRejectedInterruptAndSteerKeepDeliveryHonest(t *testing.T) {
 	if err != nil || !caps.CanSend || !caps.CanInterrupt {
 		t.Fatal("rejected interrupt left the session stuck")
 	}
-	if err := engine.CloseSession(call.Task.Run.ID); err != nil {
+	if err := engine.Cancel(call.Task.Run.ID); err != nil {
 		t.Fatal(err)
 	}
 	waitSession(t, db, call.Task.Run.ID, "closed")
 	if eventStatus(t, db, call.Task.Event.ID) != "cancelled" {
-		t.Fatal("explicit close did not end the active event")
+		t.Fatal("cancellation did not end the active event")
+	}
+}
+
+func TestCancelQueuedFollowupDoesNotConfirmTask(t *testing.T) {
+	executor := &interactiveExecutor{started: make(chan *interactiveCall, 1)}
+	db, scheduler := fixture(t, model.PipelineSpec{Concurrency: 1}, executor)
+	event := enqueue(t, db, time.Now().UTC())
+	if err := scheduler.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	call := nextTurn(t, executor)
+	call.Finish <- false
+	waitSession(t, db, call.Task.Run.ID, "idle")
+	if err := scheduler.Cancel(call.Task.Run.ID); err == nil || eventStatus(t, db, event.ID) != "awaiting_review" {
+		t.Fatal("cancellation accepted or confirmed a successful turn")
+	}
+	updatePipeline(t, db, true)
+	if err := scheduler.Resume(call.Task.Run.ID, "adjust the result", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := scheduler.Cancel(call.Task.Run.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitSession(t, db, call.Task.Run.ID, "closed")
+	var turn model.AgentTurn
+	if err := db.Where("run_id = ? AND number = ?", call.Task.Run.ID, 2).First(&turn).Error; err != nil || turn.Status != "interrupted" || eventStatus(t, db, event.ID) != "cancelled" {
+		t.Fatalf("queued cancellation did not interrupt the turn and cancel the event: %+v %v", turn, err)
 	}
 }
 

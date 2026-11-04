@@ -4,6 +4,8 @@
 
 操作者检查产物后，通过现有 `POST /api/runs/:id/close` 确认完成并结束会话。清理成功时，会话变为 `closed`，待确认 Event 在同一数据库事务中变为 `succeeded`。清理失败时保留 `closing`、错误信息和 `awaiting_review`，可重试结束；关闭失败、中断或取消的执行不会把任务标为成功。
 
+旧 `/api/runs/:id/cancel` 仅取消活动或排队的执行，不代表任务验收；对已成功、待确认的会话返回 409，并保留现场。
+
 人工继续将 Event 设为 `waiting`，调度后为 `running`，正常结束后再次进入 `awaiting_review`。未完成事件及未关闭的会话阻止所属 Pipeline 被删除。
 
 运行列表将 `succeeded` 显示为“执行成功”；任务列表区分“待确认”和“已完成”。概览分别统计成功执行、待确认任务与已完成任务。

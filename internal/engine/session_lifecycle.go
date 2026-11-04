@@ -14,6 +14,11 @@ import (
 func (e *Engine) CloseSession(runID uint) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.closeSession(runID)
+}
+
+// closeSession requires e.mu so cancellation cannot race with turn completion.
+func (e *Engine) closeSession(runID uint) error {
 	session, err := e.sessionForAction(runID)
 	if err != nil {
 		return err

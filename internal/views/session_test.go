@@ -218,6 +218,9 @@ func TestInteractiveSessionAPI(t *testing.T) {
 	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &detail) != nil || detail.Run.Status != "succeeded" || detail.Event.Status != "awaiting_review" {
 		t.Fatalf("successful execution must await task confirmation: %d %s", response.Code, response.Body)
 	}
+	if response := request(http.MethodPost, base+"/cancel", "", true, ""); response.Code != http.StatusConflict {
+		t.Fatalf("legacy cancellation accepted a task awaiting review: %d %s", response.Code, response.Body)
+	}
 	response = request(http.MethodGet, "/api/events?status=awaiting_review", "", true, "")
 	var waiting []model.Event
 	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &waiting) != nil || len(waiting) != 1 || waiting[0].ID != event.ID {

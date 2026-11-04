@@ -802,7 +802,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
       description: Legacy cancellation endpoint. For interactive runs this ends the session rather than preserving
-        it for continuation. Use /interrupt to stop only the current turn.
+        it for continuation, and accepts only active or queued turns. It never confirms a successful task;
+        inactive sessions return 409. Use /interrupt to stop only the current turn or /close to confirm completion.
   /api/artifacts:
     get:
       summary: List the newest 200 artifacts

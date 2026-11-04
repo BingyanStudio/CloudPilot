@@ -147,15 +147,18 @@ func (e *Engine) Trigger(name string) error {
 // Cancel requests cancellation of an execution owned by this scheduler.
 func (e *Engine) Cancel(runID uint) error {
 	e.mu.Lock()
+	defer e.mu.Unlock()
 	var session model.AgentSession
 	if err := e.DB.Where("run_id = ?", runID).First(&session).Error; err == nil {
-		e.mu.Unlock()
-		return e.CloseSession(runID)
+		switch session.State {
+		case "starting", "running", "interrupting", "queued":
+			return e.closeSession(runID)
+		default:
+			return fmt.Errorf("session is %s and cannot be cancelled; use close to end it", session.State)
+		}
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		e.mu.Unlock()
 		return err
 	}
-	defer e.mu.Unlock()
 	if active, ok := e.active[runID]; ok {
 		active.cancelled = true
 		active.cancel()
