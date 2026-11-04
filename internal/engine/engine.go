@@ -62,6 +62,7 @@ type Engine struct {
 	wg               sync.WaitGroup
 	wake             chan struct{}
 	sourceChecksLeft int
+	pipelineOffset   int
 }
 
 // Create configures a scheduler without starting background work.
@@ -242,8 +243,15 @@ func (e *Engine) tick(now time.Time) error {
 	if err := e.DB.Where("kind = ?", "Pipeline").Order("id").Find(&pipelines).Error; err != nil {
 		return err
 	}
+	if len(pipelines) == 0 {
+		return nil
+	}
+	// Rotate the first pipeline so a sustained backlog cannot monopolize source checks.
+	start := e.pipelineOffset % len(pipelines)
+	e.pipelineOffset = (start + 1) % len(pipelines)
 	var failures []error
-	for _, pipeline := range pipelines {
+	for index := range pipelines {
+		pipeline := pipelines[(start+index)%len(pipelines)]
 		if err := e.dispatch(pipeline, now); err != nil {
 			failures = append(failures, fmt.Errorf("pipeline %s: %w", pipeline.Name, err))
 		}

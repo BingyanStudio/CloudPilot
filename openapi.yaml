@@ -377,8 +377,8 @@ paths:
         are acknowledged without creating an event. One event is persisted per Input and repository/issue identity,
         even when a new delivery ID is used. A duplicate returns the original event without requeueing.
         Authenticated issue deliveries for an existing event trigger a fresh eligibility check, including closed,
-        unlabeled and unassigned actions. Eligibility is checked before initial and follow-up execution and every
-        a nominal 30-second interval while running (at most four API checks per scheduler cycle).
+        unlabeled and unassigned actions. Eligibility is checked before initial and follow-up execution and at
+        nominal 30-second intervals while running (at most four API checks per scheduler cycle).
         Closed or unmatched issues cancel queued events or interrupt retained sessions;
         API failures defer dispatch without consuming an attempt and do not stop running sessions.
 

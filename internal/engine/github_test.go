@@ -216,6 +216,64 @@ func TestGitHubCheckBudgetLetsTheBacklogAdvance(t *testing.T) {
 	}
 }
 
+func TestGitHubCheckBudgetRotatesBetweenSaturatedPipelines(t *testing.T) {
+	db, engine := fixture(t, model.PipelineSpec{Concurrency: 4}, executorFunc(func(ctx context.Context, _ Task, _ func(string, string)) ([]model.Artifact, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}))
+	now := time.Now().UTC()
+	first := githubEvent(t, db, now)
+	pipeline, err := model.FindResource(db, "Pipeline", "feedback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipeline.ID, pipeline.Name = 0, "later"
+	if err := db.Create(&pipeline).Error; err != nil {
+		t.Fatal(err)
+	}
+	for index := range 15 {
+		event := enqueue(t, db, now)
+		event.Payload = first.Payload
+		number := 7
+		if index >= 7 {
+			event.PipelineName, number = "later", 8
+			event.Payload = json.RawMessage(`{"issue":{"id":43,"number":8}}`)
+		}
+		if err := db.Save(&event).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&model.GitHubIssueNotification{EventID: event.ID, Repository: "org/repo", IssueNumber: number}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	requests := map[string]int{}
+	engine.GitHubClient = &http.Client{Transport: githubTransport(func(req *http.Request) (*http.Response, error) {
+		requests[req.URL.Path]++
+		code, body := http.StatusServiceUnavailable, `{}`
+		if strings.HasSuffix(req.URL.Path, "/8") {
+			code, body = http.StatusOK, `{"id":43,"number":8,"state":"open","labels":[{"name":"ready"}]}`
+		}
+		return &http.Response{StatusCode: code, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})}
+	if err := engine.tick(now); err != nil {
+		t.Fatal(err)
+	}
+	// Keep the earlier backlog eligible, as it would be during a sustained API outage.
+	if err := db.Model(&model.Event{}).Where("status = ?", "queued").Update("available_at", now).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.tick(now); err != nil {
+		t.Fatal(err)
+	}
+	var running int64
+	if err := db.Model(&model.Run{}).Where("pipeline_name = ? AND status = ?", "later", "running").Count(&running).Error; err != nil {
+		t.Fatal(err)
+	}
+	if requests["/repos/org/repo/issues/7"] != 4 || requests["/repos/org/repo/issues/8"] != 4 || running != 4 {
+		t.Fatalf("earlier backlog monopolized the API budget: requests=%v, later runs=%d", requests, running)
+	}
+}
+
 func TestGitHubPreflightRechecksPipelinePause(t *testing.T) {
 	started := make(chan Task, 1)
 	db, engine := fixture(t, model.PipelineSpec{Concurrency: 1}, executorFunc(func(_ context.Context, task Task, _ func(string, string)) ([]model.Artifact, error) {
