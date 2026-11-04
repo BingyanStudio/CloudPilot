@@ -5,6 +5,16 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+test('PPIO wrappers install the SDK required by the builder', async () => {
+  const builder = await readFile(new URL('build.mjs', import.meta.url), 'utf8');
+  assert.match(builder, /createRequire\(import\.meta\.url\)\('ppio-sandbox'\)/);
+  for (const wrapper of ['build.ps1', 'build.sh']) {
+    const source = await readFile(new URL(wrapper, import.meta.url), 'utf8');
+    assert.match(source, /\bppio-sandbox@2\.1\.2\b/);
+    assert.doesNotMatch(source, /novita-sandbox|Novita/);
+  }
+});
+
 test('PPIO template builder handles help, provisioning, build failures and credential redaction', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'cloudpilot-template-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));

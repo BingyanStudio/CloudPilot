@@ -19,9 +19,9 @@ try {
         throw 'Install Node.js with its bundled npm before building the template'
     }
     $env:NODE_USE_ENV_PROXY = '1'
-    & $node $npmCLI install --prefix $builderDirectory --cache "$builderDirectory/npm-cache" --no-audit --no-fund novita-sandbox@2.1.2 |
+    & $node $npmCLI install --prefix $builderDirectory --cache "$builderDirectory/npm-cache" --no-audit --no-fund ppio-sandbox@2.1.2 |
         ForEach-Object { [Console]::Error.WriteLine($_) }
-    if ($LASTEXITCODE -ne 0) { throw 'Failed to install the Novita build SDK' }
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to install the PPIO build SDK' }
     $env:NODE_PATH = (Join-Path $builderDirectory 'node_modules') + [IO.Path]::PathSeparator + $previousNodePath
     & $node "$PSScriptRoot/build.mjs" @args
     $buildExitCode = $LASTEXITCODE
