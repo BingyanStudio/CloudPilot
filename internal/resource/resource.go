@@ -323,6 +323,9 @@ func normalize(doc, previous model.Document, encryption cipher.AEAD) (model.Docu
 		if s.TimeoutSeconds < 10 || s.TimeoutSeconds > 86400 {
 			return doc, errors.New("timeoutSeconds must be between 10 and 86400")
 		}
+		if s.StallTimeoutSeconds < 0 || s.StallTimeoutSeconds > 86400 {
+			return doc, errors.New("stallTimeoutSeconds must be between 0 and 86400")
+		}
 		if s.Timezone == "" {
 			s.Timezone = "Asia/Shanghai"
 		}

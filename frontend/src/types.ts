@@ -92,6 +92,11 @@ export interface AgentSession {
   currentTurnId: number;
   workspaceLost: boolean;
   lastError: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  usageUpdatedAt: string | null;
+  lastActivityAt: string | null;
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
@@ -185,6 +190,7 @@ export function template(kind: Kind): Resource {
       concurrency: 1,
       maxRetries: 0,
       timeoutSeconds: 3600,
+      stallTimeoutSeconds: 300,
       paused: false,
     },
     Worker: {

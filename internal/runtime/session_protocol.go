@@ -26,7 +26,12 @@ func executeSession(ctx context.Context, task engine.Task, session model.AgentSe
 		emit = func(engine.SessionUpdate) {}
 	}
 	observer := &sessionObserver{threadID: session.ThreadID, emit: emit, redact: sink.redact, secrets: secrets, tails: map[string]string{}, completed: make(chan completedTurn, 1)}
-	client := connectAppServer(transport.Input, transport.Output, observer.notification, func(stream, message string) { sink.write(stream, []byte(message+"\n")) })
+	client := connectAppServer(transport.Input, transport.Output, observer.notification, func(stream, message string) { sink.write(stream, []byte(message+"\n")) }, func(at time.Time) { emit(engine.SessionUpdate{ActivityAt: at}) })
+	defer func() {
+		if at := client.activityTime(); !at.IsZero() {
+			emit(engine.SessionUpdate{ActivityAt: at})
+		}
+	}()
 	select {
 	case <-client.ready:
 	case <-client.done:
@@ -65,6 +70,9 @@ func executeSession(ctx context.Context, task engine.Task, session model.AgentSe
 	if started.Thread.ID == "" {
 		return result, errors.New("Codex returned an empty thread ID")
 	}
+	if session.ThreadID != "" && started.Thread.ID != session.ThreadID {
+		return result, errors.New("Codex resumed a different thread")
+	}
 	result.ThreadID = started.Thread.ID
 	observer.setThread(result.ThreadID)
 	emit(engine.SessionUpdate{ThreadID: result.ThreadID})
@@ -89,6 +97,14 @@ func executeSession(ctx context.Context, task engine.Task, session model.AgentSe
 	emit(engine.SessionUpdate{ProviderTurnID: result.ProviderTurnID})
 	if ctx.Err() != nil {
 		return result, ctx.Err()
+	}
+	var stalled <-chan time.Time
+	var stallTimer *time.Timer
+	stallTimeout := time.Duration(task.Pipeline.StallTimeoutSeconds) * time.Second
+	if stallTimeout > 0 {
+		stallTimer = time.NewTimer(stallTimeout)
+		defer stallTimer.Stop()
+		stalled = stallTimer.C
 	}
 	finish := func(completed completedTurn) (engine.TurnResult, error) {
 		result.ProviderTurnID = completed.id
@@ -148,6 +164,12 @@ func executeSession(ctx context.Context, task engine.Task, session model.AgentSe
 			}
 		case <-ctx.Done():
 			return result, ctx.Err()
+		case <-stalled:
+			if remaining := stallTimeout - time.Since(client.activityTime()); remaining > 0 {
+				stallTimer.Reset(remaining)
+				continue
+			}
+			return result, fmt.Errorf("Codex turn stalled: no app-server activity for %s", stallTimeout)
 		case <-client.done:
 			select {
 			case completed := <-observer.completed:

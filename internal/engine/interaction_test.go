@@ -102,6 +102,46 @@ func updatePipeline(t *testing.T, db *gorm.DB, paused bool) {
 	}
 }
 
+// TestSessionUsageSurvivesResume keeps cumulative usage independent of repeated reports and turn outcomes.
+func TestSessionUsageSurvivesResume(t *testing.T) {
+	executor := &interactiveExecutor{started: make(chan *interactiveCall, 2)}
+	db, scheduler := fixture(t, model.PipelineSpec{Concurrency: 1, TimeoutSeconds: 30, MaxRetries: 2}, executor)
+	enqueue(t, db, time.Now().UTC())
+	if err := scheduler.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	first := nextTurn(t, executor)
+	at := time.Now().UTC()
+	first.Emit(SessionUpdate{ActivityAt: at, Usage: &TokenUsage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15}})
+	first.Emit(SessionUpdate{ActivityAt: at.Add(-time.Second), Usage: &TokenUsage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15}})
+	first.Emit(SessionUpdate{Usage: &TokenUsage{InputTokens: 3, OutputTokens: 2, TotalTokens: 5}})
+	if err := scheduler.Stop(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	retained := waitSession(t, db, first.Task.Run.ID, "interrupted")
+	threadID := retained.ThreadID
+	if retained.TotalTokens != 15 || retained.InputTokens != 10 || retained.OutputTokens != 5 || retained.UsageUpdatedAt == nil || retained.LastActivityAt == nil || !retained.LastActivityAt.Equal(at) {
+		t.Fatalf("usage was lost or double-counted: %+v", retained)
+	}
+	restarted := Create(db, executor)
+	restarted.PollInterval = 5 * time.Millisecond
+	if err := restarted.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restarted.Stop(context.Background()) })
+	if err := restarted.Resume(first.Task.Run.ID, "continue", 1); err != nil {
+		t.Fatal(err)
+	}
+	second := nextTurn(t, executor)
+	second.Emit(SessionUpdate{Usage: &TokenUsage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15}})
+	second.Emit(SessionUpdate{Usage: &TokenUsage{InputTokens: 20, OutputTokens: 8, TotalTokens: 28}})
+	second.Finish <- false
+	retained = waitSession(t, db, first.Task.Run.ID, "idle")
+	if retained.TotalTokens != 28 || retained.InputTokens != 20 || retained.OutputTokens != 8 || retained.ThreadID != threadID {
+		t.Fatalf("resumed usage was added instead of replaced: %+v", retained)
+	}
+}
+
 func TestFollowupUsesSnapshotAndHonorsConcurrencyAndPause(t *testing.T) {
 	executor := &interactiveExecutor{started: make(chan *interactiveCall, 4)}
 	db, engine := fixture(t, model.PipelineSpec{Concurrency: 1, TimeoutSeconds: 30}, executor)

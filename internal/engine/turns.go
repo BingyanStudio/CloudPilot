@@ -111,6 +111,11 @@ func (e *Engine) executeTurn(ctx context.Context, task Task, session model.Agent
 		if e.active[task.Run.ID] != active {
 			return
 		}
+		if update.ThreadID != "" && session.ThreadID != "" && update.ThreadID != session.ThreadID {
+			active.failure = "worker changed the session thread ID"
+			active.cancel()
+			return
+		}
 		if update.ThreadID != "" {
 			session.ThreadID = update.ThreadID
 		}
@@ -118,6 +123,24 @@ func (e *Engine) executeTurn(ctx context.Context, task Task, session model.Agent
 			turn.ProviderTurnID = update.ProviderTurnID
 		}
 		err := e.DB.Transaction(func(tx *gorm.DB) error {
+			telemetry := map[string]any{}
+			if !update.ActivityAt.IsZero() && (session.LastActivityAt == nil || update.ActivityAt.After(*session.LastActivityAt)) {
+				activity := update.ActivityAt.UTC()
+				session.LastActivityAt = &activity
+				telemetry["last_activity_at"] = activity
+			}
+			if usage := update.Usage; usage != nil && session.ThreadID != "" && usage.InputTokens >= session.InputTokens && usage.OutputTokens >= session.OutputTokens && usage.TotalTokens >= session.TotalTokens {
+				now := time.Now().UTC()
+				session.InputTokens, session.OutputTokens, session.TotalTokens = usage.InputTokens, usage.OutputTokens, usage.TotalTokens
+				session.UsageUpdatedAt = &now
+				telemetry["input_tokens"], telemetry["output_tokens"], telemetry["total_tokens"] = usage.InputTokens, usage.OutputTokens, usage.TotalTokens
+				telemetry["usage_updated_at"] = now
+			}
+			if len(telemetry) > 0 {
+				if err := tx.Model(&session).Updates(telemetry).Error; err != nil {
+					return err
+				}
+			}
 			if update.ThreadID != "" {
 				if err := tx.Model(&session).Update("thread_id", update.ThreadID).Error; err != nil {
 					return err
@@ -178,7 +201,11 @@ func (e *Engine) executeTurn(ctx context.Context, task Task, session model.Agent
 	active.cancel()
 	closing := active.closing
 	if result.ThreadID != "" {
-		session.ThreadID = result.ThreadID
+		if session.ThreadID != "" && session.ThreadID != result.ThreadID {
+			active.failure = "worker changed the session thread ID"
+		} else {
+			session.ThreadID = result.ThreadID
+		}
 	}
 	if result.ProviderTurnID != "" {
 		turn.ProviderTurnID = result.ProviderTurnID

@@ -190,7 +190,7 @@ func TestManifestApplyRoundTripAndAtomicValidation(t *testing.T) {
 	if err := pipeline.Decode(&spec); err != nil {
 		t.Fatal(err)
 	}
-	if spec.Timezone != "Asia/Shanghai" || spec.Concurrency != 1 || spec.TimeoutSeconds != 3600 {
+	if spec.Timezone != "Asia/Shanghai" || spec.Concurrency != 1 || spec.TimeoutSeconds != 3600 || spec.StallTimeoutSeconds != 0 {
 		t.Fatalf("defaults not applied: %+v", spec)
 	}
 	exported, err := ExportYAML(applied)
@@ -230,6 +230,8 @@ func TestManifestApplyRoundTripAndAtomicValidation(t *testing.T) {
 		strings.Replace(testManifest, "path: app", "path: ../outside", 1),
 		strings.Replace(testManifest, "path: app", "path: .codex/tools", 1),
 		strings.Replace(testManifest, `schedule: "0 20 * * *"`, `schedule: "every night"`, 1),
+		strings.Replace(testManifest, `schedule: "0 20 * * *"`, `stallTimeoutSeconds: -1`, 1),
+		strings.Replace(testManifest, `schedule: "0 20 * * *"`, `stallTimeoutSeconds: 86401`, 1),
 		strings.Replace(testManifest, "secretRef: FEEDBACK_TOKEN", "secretRef: my-secret-value", 1),
 	} {
 		parsed, parseErr := ParseYAML([]byte(input))

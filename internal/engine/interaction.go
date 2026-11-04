@@ -24,6 +24,15 @@ type SessionUpdate struct {
 	Event          *model.SessionEvent
 	ControlID      uint
 	ControlError   string
+	ActivityAt     time.Time
+	Usage          *TokenUsage
+}
+
+// TokenUsage contains cumulative counts for the session's provider thread.
+type TokenUsage struct {
+	InputTokens  int64 `json:"inputTokens"`
+	OutputTokens int64 `json:"outputTokens"`
+	TotalTokens  int64 `json:"totalTokens"`
 }
 
 type TurnResult struct {

@@ -1426,6 +1426,14 @@ components:
           default: 3600
           description: Execution timeout; applied independently to each interactive turn using the session configuration
             snapshot.
+        stallTimeoutSeconds:
+          type: integer
+          minimum: 0
+          maximum: 86400
+          default: 0
+          description: Maximum interval without app-server protocol activity during an active interactive turn.
+            Zero or omission disables detection, including legacy session snapshots. Independent of timeoutSeconds;
+            stalled turns fail and retain the session without automatic replay. New WebUI templates suggest 300 seconds.
       required:
       - workerRef
       - workspaceRef
@@ -2024,6 +2032,32 @@ components:
             is disabled; close this session before starting a fresh run.
         lastError:
           type: string
+        inputTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        outputTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        totalTokens:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Latest accepted cumulative provider-thread usage, never a sum of repeated reports.
+            Token counts are unavailable until usageUpdatedAt is non-null and are not a billing statement.
+        usageUpdatedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: Null when the provider has not supplied cumulative token usage.
+        lastActivityAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: Latest observed app-server protocol activity; persisted at most once per second and at turn exit.
         createdAt:
           type: string
           format: date-time
@@ -2043,6 +2077,11 @@ components:
       - currentTurnId
       - workspaceLost
       - lastError
+      - inputTokens
+      - outputTokens
+      - totalTokens
+      - usageUpdatedAt
+      - lastActivityAt
       - createdAt
       - updatedAt
       - closedAt

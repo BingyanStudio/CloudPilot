@@ -53,7 +53,7 @@ function assertFormShape(value: Resource) {
   for (const key of stringKeys)
     if (spec[key] !== undefined && typeof spec[key] !== 'string')
       throw new Error(`spec.${key} 必须是字符串。`);
-  for (const key of ['concurrency', 'maxRetries', 'timeoutSeconds'])
+  for (const key of ['concurrency', 'maxRetries', 'timeoutSeconds', 'stallTimeoutSeconds'])
     if (spec[key] !== undefined && typeof spec[key] !== 'number')
       throw new Error(`spec.${key} 必须是数字。`);
   if (spec.e2b !== undefined) {
@@ -536,6 +536,13 @@ export default function ResourceEditor({
                           10,
                           86400,
                           '每轮继续执行独立计时；等待人工输入不占用运行并发。',
+                        )}
+                        {number(
+                          'stallTimeoutSeconds',
+                          '无活动超时（秒）',
+                          0,
+                          86400,
+                          'Agent 长时间无响应时停止本轮并保留会话；0 表示关闭。长时间无输出的构建可调高此值。',
                         )}
                         {paused}
                       </>

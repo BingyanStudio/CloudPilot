@@ -147,6 +147,14 @@ export default function RunConversation({
             <Status value={state} />
           </div>
           <p>{sessionDescriptions[state] || '会话状态正在更新。'}</p>
+          {session && (
+            <p>
+              最近活动：{formatTime(session.lastActivityAt)} · Token：
+              {session.usageUpdatedAt
+                ? `${session.totalTokens.toLocaleString()}（输入 ${session.inputTokens.toLocaleString()} / 输出 ${session.outputTokens.toLocaleString()}）`
+                : '未提供'}
+            </p>
+          )}
         </div>
         <div className="session-controls">
           {capabilities.canInterrupt && (

@@ -82,15 +82,16 @@ type GitHubInputSpec struct {
 }
 
 type PipelineSpec struct {
-	WorkerRef      string `json:"workerRef"`
-	WorkspaceRef   string `json:"workspaceRef"`
-	RunnerRef      string `json:"runnerRef"`
-	Schedule       string `json:"schedule"`
-	Timezone       string `json:"timezone"`
-	Concurrency    int    `json:"concurrency"`
-	Paused         bool   `json:"paused"`
-	MaxRetries     int    `json:"maxRetries"`
-	TimeoutSeconds int    `json:"timeoutSeconds"`
+	WorkerRef           string `json:"workerRef"`
+	WorkspaceRef        string `json:"workspaceRef"`
+	RunnerRef           string `json:"runnerRef"`
+	Schedule            string `json:"schedule"`
+	Timezone            string `json:"timezone"`
+	Concurrency         int    `json:"concurrency"`
+	Paused              bool   `json:"paused"`
+	MaxRetries          int    `json:"maxRetries"`
+	TimeoutSeconds      int    `json:"timeoutSeconds"`
+	StallTimeoutSeconds int    `json:"stallTimeoutSeconds"`
 }
 
 type WorkerSpec struct {
