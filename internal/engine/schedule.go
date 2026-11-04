@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/BingyanStudio/CloudPilot/internal/model"
@@ -105,10 +106,37 @@ func (e *Engine) dispatch(resource model.Resource, now time.Time) error {
 	for running < int64(spec.Concurrency) {
 		var task Task
 		task.Pipeline = spec
-		err = e.DB.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Where("pipeline_name = ? AND status = ? AND available_at <= ? AND created_at <= ?", resource.Name, "queued", now, *cutoff).Order("id").First(&task.Event).Error; err != nil {
+		if err := e.DB.Where("pipeline_name = ? AND status = ? AND available_at <= ? AND created_at <= ?", resource.Name, "queued", now, *cutoff).Order("available_at, id").First(&task.Event).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				break
+			}
+			return err
+		}
+		eligible, checkErr := e.checkGitHub(task.Event)
+		if errors.Is(checkErr, errSourceCheckBudget) {
+			break
+		}
+		if checkErr != nil {
+			if errors.Is(checkErr, context.Canceled) {
+				return checkErr
+			}
+			if err := e.deferGitHubCheck(task.Event, checkErr); err != nil {
 				return err
 			}
+			continue
+		}
+		if !eligible {
+			if err := e.DB.Model(&task.Event).Where("status = ?", "queued").Update("status", "cancelled").Error; err != nil {
+				return err
+			}
+			slog.Info("queued GitHub event cancelled", "event", task.Event.ID, "reason", sourceStopped)
+			continue
+		}
+		allowed, err := e.canDispatch(resource.Name)
+		if err != nil || !allowed {
+			return err
+		}
+		err = e.DB.Transaction(func(tx *gorm.DB) error {
 			result := tx.Model(&model.Event{}).Where("id = ? AND status = ?", task.Event.ID, "queued").Updates(map[string]any{"status": "running", "attempts": gorm.Expr("attempts + 1")})
 			if result.Error != nil {
 				return result.Error
@@ -137,7 +165,7 @@ func (e *Engine) dispatch(resource model.Resource, now time.Time) error {
 			}
 		}
 		ctx, cancel := context.WithTimeout(e.ctx, time.Duration(spec.TimeoutSeconds)*time.Second)
-		e.active[task.Run.ID] = &execution{cancel: cancel}
+		e.active[task.Run.ID] = &execution{cancel: cancel, eventID: task.Event.ID, sourceCheckAt: now.Add(sourceCheckInterval)}
 		e.wg.Go(func() { e.execute(ctx, task, prepareErr) })
 		running++
 	}

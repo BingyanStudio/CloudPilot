@@ -96,7 +96,7 @@ func (n *Notifier) deliver(ctx context.Context, notification model.GitHubIssueNo
 	sum := sha256.Sum256([]byte(notification.TaskURL))
 	body := fmt.Sprintf("CloudPilot 已接收此 issue 并创建任务。\n\n[在 WebUI 查看任务](%s)\n\n<!-- cloudpilot-task:%x -->", notification.TaskURL, sum)
 	for page := 1; ; page++ {
-		response, err := n.request(ctx, http.MethodGet, fmt.Sprintf("%s?per_page=100&page=%d", endpoint, page), token, nil)
+		response, err := request(ctx, n.Client, http.MethodGet, fmt.Sprintf("%s?per_page=100&page=%d", endpoint, page), token, nil)
 		if err != nil {
 			return err
 		}
@@ -119,11 +119,11 @@ func (n *Notifier) deliver(ctx context.Context, notification model.GitHubIssueNo
 	if err != nil {
 		return err
 	}
-	_, err = n.request(ctx, http.MethodPost, endpoint, token, data)
+	_, err = request(ctx, n.Client, http.MethodPost, endpoint, token, data)
 	return err
 }
 
-func (n *Notifier) request(ctx context.Context, method, endpoint, token string, body []byte) ([]byte, error) {
+func request(ctx context.Context, configured *http.Client, method, endpoint, token string, body []byte) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -136,13 +136,13 @@ func (n *Notifier) request(ctx context.Context, method, endpoint, token string, 
 		req.Header.Set("Content-Type", "application/json")
 	}
 	client := *http.DefaultClient
-	if n.Client != nil {
-		client = *n.Client
+	if configured != nil {
+		client = *configured
 	}
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	response, err := client.Do(req)
 	if err != nil {
-		return nil, errors.New("GitHub comment request failed")
+		return nil, errors.New("GitHub request failed")
 	}
 	defer response.Body.Close()
 	expected := http.StatusOK
@@ -150,11 +150,11 @@ func (n *Notifier) request(ctx context.Context, method, endpoint, token string, 
 		expected = http.StatusCreated
 	}
 	if response.StatusCode != expected {
-		return nil, fmt.Errorf("GitHub comment request returned HTTP %d", response.StatusCode)
+		return nil, fmt.Errorf("GitHub request returned HTTP %d", response.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, (8<<20)+1))
 	if err != nil || len(data) > 8<<20 {
-		return nil, errors.New("could not read GitHub comment response")
+		return nil, errors.New("could not read GitHub response")
 	}
 	return data, nil
 }

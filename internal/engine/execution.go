@@ -38,6 +38,9 @@ func (e *Engine) execute(ctx context.Context, task Task, prepareErr error) {
 	} else if errors.Is(err, context.DeadlineExceeded) {
 		message = "execution exceeded pipeline timeout"
 	}
+	if active.sourceStopped != "" {
+		status, message = "cancelled", active.sourceStopped
+	}
 	if persistErr := e.finish(task, status, message, artifacts, time.Now().UTC()); persistErr != nil {
 		slog.Error("persist execution result failed", "run", task.Run.ID, "error", persistErr)
 		// A failed artifact insert must not leave a completed execution occupying a slot.

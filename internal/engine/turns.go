@@ -45,20 +45,54 @@ func (e *Engine) dispatchTurns(pipeline string, concurrency int, running int64, 
 		var task Task
 		var session model.AgentSession
 		var turn model.AgentTurn
-		err := e.DB.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Joins("JOIN runs ON runs.id = agent_turns.run_id").Where("runs.pipeline_name = ? AND agent_turns.status = ?", pipeline, "queued").Order("agent_turns.id").First(&turn).Error; err != nil {
-				return err
+		if err := e.DB.Joins("JOIN runs ON runs.id = agent_turns.run_id").Joins("JOIN events ON events.id = runs.event_id").Where("runs.pipeline_name = ? AND agent_turns.status = ? AND events.available_at <= ?", pipeline, "queued", now).Order("events.available_at, agent_turns.id").First(&turn).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				break
 			}
+			return running, err
+		}
+		if err := e.DB.First(&session, turn.SessionID).Error; err != nil {
+			return running, err
+		}
+		task, err := e.sessionTask(e.DB, session)
+		if err != nil {
+			return running, err
+		}
+		eligible, checkErr := e.checkGitHub(task.Event)
+		if errors.Is(checkErr, errSourceCheckBudget) {
+			break
+		}
+		if checkErr != nil {
+			if errors.Is(checkErr, context.Canceled) {
+				return running, checkErr
+			}
+			if err := e.deferGitHubCheck(task.Event, checkErr); err != nil {
+				return running, err
+			}
+			continue
+		}
+		if !eligible {
+			if err := e.rejectGitHubTurn(task, session, turn, now); err != nil {
+				return running, err
+			}
+			continue
+		}
+		allowed, err := e.canDispatch(pipeline)
+		if err != nil || !allowed {
+			return running, err
+		}
+		if err := e.DB.First(&session, turn.SessionID).Error; err != nil {
+			return running, err
+		}
+		if session.State != "queued" || session.CurrentTurnID != turn.ID {
+			continue
+		}
+		err = e.DB.Transaction(func(tx *gorm.DB) error {
 			if err := tx.First(&session, turn.SessionID).Error; err != nil {
 				return err
 			}
 			if session.State != "queued" || session.CurrentTurnID != turn.ID {
 				return errors.New("queued turn does not match session state")
-			}
-			var err error
-			task, err = e.sessionTask(tx, session)
-			if err != nil {
-				return err
 			}
 			executor, ok := e.Executor.(InteractiveExecutor)
 			if !ok || !executor.SupportsInteraction(task) {
@@ -97,7 +131,7 @@ func (e *Engine) launchTurn(task Task, session model.AgentSession, turn model.Ag
 		seconds = 3600
 	}
 	ctx, cancel := context.WithTimeout(e.ctx, time.Duration(seconds)*time.Second)
-	active := &execution{cancel: cancel, sessionID: session.ID, controls: make(chan SessionControl, 32), pending: map[uint]bool{}}
+	active := &execution{cancel: cancel, sessionID: session.ID, controls: make(chan SessionControl, 32), pending: map[uint]bool{}, eventID: task.Event.ID, sourceCheckAt: time.Now().UTC().Add(sourceCheckInterval)}
 	e.active[task.Run.ID] = active
 	e.wg.Go(func() { e.executeTurn(ctx, task, session, turn, active) })
 }
@@ -222,6 +256,9 @@ func (e *Engine) executeTurn(ctx context.Context, task Task, session model.Agent
 	}
 	if active.failure != "" {
 		state, status, turnStatus, message = "failed", "failed", "failed", active.failure
+	}
+	if active.sourceStopped != "" {
+		state, status, turnStatus, message = "interrupted", "interrupted", "interrupted", active.sourceStopped
 	}
 	if closing {
 		state, status, turnStatus, message = "closing", "cancelled", "interrupted", "session ended by operator"

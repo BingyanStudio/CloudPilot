@@ -228,7 +228,7 @@ func (e *Engine) queueTurn(session model.AgentSession, text string, userID uint)
 		if err := tx.Model(&task.Run).Updates(map[string]any{"status": "queued", "error": "", "finished_at": nil}).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&task.Event).Update("status", "waiting").Error; err != nil {
+		if err := tx.Model(&task.Event).Updates(map[string]any{"status": "waiting", "available_at": time.Now().UTC()}).Error; err != nil {
 			return err
 		}
 		return tx.Create(&model.SessionEvent{RunID: session.RunID, TurnID: turn.ID, Type: "message", Role: "user", Status: "accepted", Text: text, ItemID: fmt.Sprintf("turn-input-%d", turn.ID)}).Error

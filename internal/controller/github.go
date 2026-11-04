@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BingyanStudio/CloudPilot/internal/github"
 	"github.com/BingyanStudio/CloudPilot/internal/model"
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
@@ -27,18 +28,7 @@ type githubIssuePayload struct {
 		ID       int64  `json:"id"`
 		FullName string `json:"full_name"`
 	} `json:"repository"`
-	Issue struct {
-		ID          int64           `json:"id"`
-		Number      int             `json:"number"`
-		State       string          `json:"state"`
-		PullRequest json.RawMessage `json:"pull_request"`
-		Assignees   []struct {
-			Login string `json:"login"`
-		} `json:"assignees"`
-		Labels []struct {
-			Name string `json:"name"`
-		} `json:"labels"`
-	} `json:"issue"`
+	Issue github.Issue `json:"issue"`
 }
 
 // githubIssue authenticates GitHub deliveries and queues each matching issue once.
@@ -61,13 +51,24 @@ func (a *App) githubIssue(c *echo.Context, inputName string, spec model.InputSpe
 	if c.Request().Header.Get("X-GitHub-Event") != "issues" {
 		return c.JSON(http.StatusOK, map[string]string{"status": "ignored"})
 	}
-	if !slices.Contains([]string{"opened", "reopened", "assigned", "labeled"}, payload.Action) || payload.Issue.State != "open" || len(payload.Issue.PullRequest) != 0 {
-		return c.JSON(http.StatusOK, map[string]string{"status": "ignored"})
-	}
 	if payload.Repository.ID <= 0 || payload.Issue.ID <= 0 || payload.Issue.Number <= 0 {
 		return fail(c, http.StatusBadRequest, "repository and issue identifiers are required")
 	}
-	if !strings.EqualFold(payload.Repository.FullName, spec.GitHub.Repository) || !payload.matches(*spec.GitHub) {
+	if !strings.EqualFold(payload.Repository.FullName, spec.GitHub.Repository) {
+		return c.JSON(http.StatusOK, map[string]string{"status": "ignored"})
+	}
+	key := fmt.Sprintf("github_issue:%d:%d", payload.Repository.ID, payload.Issue.ID)
+	var existing model.Event
+	if err := a.DB.Where("input_name = ? AND idempotency_key = ?", inputName, key).First(&existing).Error; err == nil {
+		if a.Engine != nil {
+			if err := a.Engine.RefreshGitHub(existing.ID); err != nil {
+				return internal(c, err)
+			}
+		}
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return internal(c, err)
+	}
+	if !slices.Contains([]string{"opened", "reopened", "assigned", "labeled"}, payload.Action) || !payload.Issue.Matches(*spec.GitHub) {
 		return c.JSON(http.StatusOK, map[string]string{"status": "ignored"})
 	}
 	if _, err := model.ResolveSecret(a.Encryption, "GitHub", spec.GitHub.Token, spec.GitHub.TokenSecretRef); err != nil {
@@ -94,7 +95,6 @@ func (a *App) githubIssue(c *echo.Context, inputName string, spec model.InputSpe
 	if err != nil {
 		return internal(c, err)
 	}
-	key := fmt.Sprintf("github_issue:%d:%d", payload.Repository.ID, payload.Issue.ID)
 	event := model.Event{InputName: inputName, PipelineName: spec.PipelineRef, Status: "queued", Payload: encoded, IdempotencyKey: &key, AvailableAt: time.Now().UTC()}
 	err = a.DB.WithContext(c.Request().Context()).Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "input_name"}, {Name: "idempotency_key"}}, DoNothing: true}).Create(&event)
@@ -130,25 +130,6 @@ func validGitHubSignature(body []byte, secret, signature string) bool {
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write(body)
 	return hmac.Equal(provided, mac.Sum(nil))
-}
-
-// matches accepts any configured assignee or label, using GitHub's case-insensitive names.
-func (payload githubIssuePayload) matches(spec model.GitHubInputSpec) bool {
-	for _, expected := range spec.Assignees {
-		for _, assignee := range payload.Issue.Assignees {
-			if expected == "*" || strings.EqualFold(expected, assignee.Login) {
-				return true
-			}
-		}
-	}
-	for _, expected := range spec.Labels {
-		for _, label := range payload.Issue.Labels {
-			if strings.EqualFold(expected, label.Name) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // validatePublicURL keeps task links tied to the configured WebUI address.
