@@ -12,8 +12,8 @@
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
-    "@carbon/icons-react": "^11.91.0",
-    "@carbon/react": "^1.119.0",
+    "@carbon/icons-react": "^11.92.0",
+    "@carbon/react": "^1.120.0",
     "@ibm/plex": "^6.4.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -24,9 +24,9 @@
   "devDependencies": {
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^6.2.1",
-    "sass": "^1.107.1",
+    "@vitejs/plugin-react": "^6.3.0",
+    "sass": "^1.108.2",
     "typescript": "^7.0.2",
-    "vite": "^8.3.5"
+    "vite": "^8.3.8"
   }
 }
